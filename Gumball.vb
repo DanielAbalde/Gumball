@@ -13,9 +13,9 @@ Public Class GumballComp
     Public Sub New()
         MyBase.New("Gumball ", "Gumball", "Gumball for Grasshopper geometry", "Params", "Util")
         Me.ValuesChanged()
-        Rhino.RhinoApp.WriteLine(Me.Radius)
     End Sub
 
+#Region "Overrides"
     Protected Overrides ReadOnly Property Icon() As System.Drawing.Bitmap
         Get
             Return My.Resources.GumballIcon
@@ -38,7 +38,7 @@ Public Class GumballComp
     End Sub
 
     Public Overrides Sub CreateAttributes()
-        m_attributes = New GumballAtt(Me)
+        m_attributes = New GumballCompAtt(Me)
     End Sub
 
     Public Overrides Sub RemovedFromDocument(document As GH_Document)
@@ -54,27 +54,51 @@ Public Class GumballComp
         If (context = GH_DocumentContext.Close) AndAlso (MyGumball IsNot Nothing) Then MyGumball.Dispose()
     End Sub
 
+    Public Overrides Property Locked As Boolean
+        Get
+            Return MyBase.Locked
+        End Get
+        Set(value As Boolean)
+            If (MyGumball IsNot Nothing) AndAlso (value) Then MyGumball.HideGumballs()
+            MyBase.Locked = value
+        End Set
+    End Property
+
     Protected Overrides Sub AppendAdditionalComponentMenuItems(ByVal menu As Windows.Forms.ToolStripDropDown)
 
-        Dim union As Windows.Forms.ToolStripMenuItem = Menu_AppendItem(menu, "Apply to all", AddressOf Me.ApplyToAll, True, Me.GetValue("gbatt", 0) = 1)
+        Dim union As Windows.Forms.ToolStripMenuItem = Menu_AppendItem(menu, "Apply to all", AddressOf Me.Menu_ApplyToAll, True, Me.ModeValue(0) = 1)
         union.ToolTipText = "Performs transformation of a gumball to all geometry"
 
-        '   Dim sep As Windows.Forms.ToolStripSeparator = Menu_AppendSeparator(menu)
+        Dim aling As Windows.Forms.ToolStripMenuItem = Menu_AppendItem(menu, "Align to geometry", AddressOf Me.Menu_AlingToGeometry, True, CBool(Me.ModeValue(2)))
+        aling.ToolTipText = "Use a geometry to align gumballs"
 
-        Dim reloc As Windows.Forms.ToolStripMenuItem = Menu_AppendItem(menu, "Relocate gumball", AddressOf Me.RelocateG, True, Me.GetValue("gbatt", 0) = 2)
+        Dim reloc As Windows.Forms.ToolStripMenuItem = Menu_AppendItem(menu, "Relocate gumball", AddressOf Me.Menu_RelocateG, True, Me.ModeValue(0) = 2)
         reloc.ToolTipText = "Relocate gumball without affecting the geometry"
 
-        Dim Rad As Windows.Forms.ToolStripMenuItem = Menu_AppendItem(menu, "Radius gumball", AddressOf ResizeGumball, True)
-        Rad.ToolTipText = "Changes the gumball radius"
+        Dim reset As Windows.Forms.ToolStripMenuItem = Menu_AppendItem(menu, "Reset gumball", AddressOf Me.Menu_Reset, True)
+        reset.ToolTipText = "Restore gumball to world coordinates"
 
-        Dim CC As Windows.Forms.ToolStripMenuItem = Menu_AppendItem(menu, "Reset gumball", AddressOf ClearCache, True)
+        Dim CC As Windows.Forms.ToolStripMenuItem = Menu_AppendItem(menu, "Clear cache", AddressOf Me.Menu_ClearCache, True)
         CC.ToolTipText = "Reset gumball and clear cache data"
+
+        Menu_AppendSeparator(menu)
+
+        Dim arrows As Windows.Forms.ToolStripItem = Menu_AppendItem(menu, "Only arrows", AddressOf Me.Menu_OnlyArrows, True, Me.ModeValue(1) = 1)
+        arrows.ToolTipText = "Show only arrows"
+
+        Dim free As Windows.Forms.ToolStripItem = Menu_AppendItem(menu, "Free translate", AddressOf Me.Menu_FreeTranslate, True, Me.ModeValue(1) = 2)
+        free.ToolTipText = "Hide all and drag from gumball center"
+
+        Menu_AppendSeparator(menu)
+
+        Dim Rad As Windows.Forms.ToolStripMenuItem = Menu_AppendItem(menu, "Attributes", AddressOf Me.Menu_Attributes, True)
+        Rad.ToolTipText = "Changes the gumball attributes"
 
     End Sub
 
     Protected Overrides Sub ValuesChanged()
 
-        Select Case Me.GetValue("gbatt", 0)
+        Select Case Me.ModeValue(0)
             Case 0
                 Me.Message = String.Empty
             Case 1
@@ -83,97 +107,171 @@ Public Class GumballComp
                 Me.Message = "Relocate"
         End Select
 
-        If (MyGumball IsNot Nothing) Then MyGumball.Resize(Me.GetValue("radius", 60))
-        Me.RecordUndoEvent("gumballattributes")
+        If (ChangeAttributes) Then
+
+            Me.RecordUndoEvent("gumballattributes")
+
+            Select Case Me.ModeValue(1)
+                Case 0
+                    GumballAttributes(0) = 1
+                    GumballAttributes(1) = 1
+                    GumballAttributes(2) = 2
+                    GumballAttributes(3) = 1
+                    GumballAttributes(4) = 1
+                Case 1
+                    GumballAttributes(0) = 1
+                    GumballAttributes(1) = 0
+                    GumballAttributes(2) = 2
+                    GumballAttributes(3) = 0
+                    GumballAttributes(4) = 0
+                Case 2
+                    GumballAttributes(0) = 0
+                    GumballAttributes(1) = 0
+                    GumballAttributes(2) = 2
+                    GumballAttributes(3) = 0
+                    GumballAttributes(4) = 0
+            End Select
+
+            If (MyGumball IsNot Nothing) Then MyGumball.ChangeAppearance()
+            ChangeAttributes = False
+        End If
+
+        If (Me.ModeValue(2)) Then
+            If (Me.Params.Input.Count = 1) Then
+                Dim param As New Grasshopper.Kernel.Parameters.Param_Geometry
+                param.Name = "Geometry to align"
+                param.NickName = "A"
+                param.Description = "Use a geometry to align gumballs."
+                param.Access = GH_ParamAccess.item
+                Params.RegisterInputParam(param)
+                Params.OnParametersChanged()
+            End If
+        Else
+            If (Me.Params.Input.Count = 2) Then
+                Dim param As IGH_Param = Params.Input(1)
+                param.RemoveAllSources()
+                Params.UnregisterInputParameter(param)
+                Params.OnParametersChanged()
+            End If
+        End If
+
         Me.ExpireSolution(True)
     End Sub
+#End Region
 
-    Private Sub ApplyToAll(sender As Object, e As System.EventArgs)
-        If (Me.GetValue("gbatt", 0) = 1) Then
-            Me.SetValue("gbatt", 0)
+#Region "Menu"
+    Private Sub Menu_ApplyToAll()
+        If (1 = Me.ModeValue(0)) Then
+            Me.ModeValue(0) = 0
         Else
-            Me.SetValue("gbatt", 1)
+            Me.ModeValue(0) = 1
         End If
     End Sub
 
-    Private Sub RelocateG(sender As Object, e As System.EventArgs)
-        If (Me.GetValue("gbatt", 0) = 2) Then
-            Me.SetValue("gbatt", 0)
+    Private Sub Menu_AlingToGeometry()
+        Me.ModeValue(2) = CInt(Not CBool(Me.ModeValue(2)))
+    End Sub
+
+    Private Sub Menu_RelocateG()
+        If (2 = Me.ModeValue(0)) Then
+            Me.ModeValue(0) = 0
         Else
-            Me.SetValue("gbatt", 2)
+            Me.ModeValue(0) = 2
         End If
     End Sub
 
-    Public ReadOnly Property AttValue As Integer
-        Get
-            Return Me.GetValue("gbatt", 0)
-        End Get
-    End Property
-
-    Public Property Radius As Integer
-        Get
-            Return Me.GetValue("radius", 60)
-        End Get
-        Set(value As Integer)
-            Me.SetValue("radius", value)
-        End Set
-    End Property
-
-    Public RadForm As FormRadius = Nothing
-
-    Private Sub ResizeGumball()
-        If (RadForm Is Nothing) Then
-            RadForm = New FormRadius(Me)
+    Private Sub Menu_Attributes()
+        If (AttForm Is Nothing) Then
+            AttForm = New FormAttributes(Me)
         Else
-            RadForm.Dispose()
+            AttForm.Dispose()
         End If
     End Sub
 
-    Public Sub ClearCache()
-        Cache.Clear()
+    Private Sub Menu_OnlyArrows()
+        If (1 = Me.ModeValue(1)) Then
+            Me.ModeValue(1) = 0
+        Else
+            Me.ModeValue(1) = 1
+        End If
+    End Sub
+
+    Private Sub Menu_FreeTranslate()
+        If (2 = Me.ModeValue(1)) Then
+            Me.ModeValue(1) = 0
+        Else
+            Me.ModeValue(1) = 2
+        End If
+    End Sub
+
+    Private Sub Menu_Reset()
+        If (MyGumball IsNot Nothing) Then MyGumball.RestoreGumball()
+    End Sub
+
+    Public Sub Menu_ClearCache()
+        Me.Cache.Clear()
         If (MyGumball IsNot Nothing) Then MyGumball.Dispose()
-        MyGumball = Nothing
+        Me.MyGumball = Nothing
         Me.ClearData()
         Me.ExpireSolution(True)
     End Sub
+#End Region
 
-    'Public Overrides Property Locked As Boolean
-    '    Get
-    '        Return MyBase.Locked
-    '    End Get
-    '    Set(value As Boolean)
-    '        If (MyGumball IsNot Nothing) AndAlso Not (value) Then MyGumball.HideGumballs()
-    '        MyBase.Locked = value
-    '    End Set
-    'End Property
+    Public Property ModeValue(ByVal index As Integer) As Integer
+        'Gumball mode = 0
+        'Gumball attributes = 1
+        'Align gumball = 2
+        Get
+            Select Case index
+                Case 0
+                    Return Me.GetValue("mode", 0)
+                Case 1
+                    Return Me.GetValue("att", 0)
+                Case 2
+                    Return Me.GetValue("align", False)
+                Case Else
+                    Throw New ArgumentOutOfRangeException()
+            End Select
+        End Get
+        Set(value As Integer)
+            Select Case index
+                Case 0
+                    Me.SetValue("mode", value)
+                Case 1
+                    ChangeAttributes = True
+                    Me.SetValue("att", value)
+                Case 2
+                    Me.SetValue("align", value)
+                Case Else
+                    Throw New ArgumentOutOfRangeException()
+            End Select
+        End Set
+    End Property
 
-    'Public Overloads Property Hidden As Boolean
-    '    Get
-    '        Return MyBase.Hidden
-    '    End Get
-    '    Set(value As Boolean)
-
-    '        If (MyGumball IsNot Nothing) Then
-
-    '            If (MyBase.Hidden) Then
-    '                If (value) Then
-    '                    MyGumball.ShowGumballs()
-    '                    Rhino.RhinoApp.WriteLine("SHOW HIDDEN")
-    '                End If
-    '            Else
-    '                If Not (value) Then
-    '                    MyGumball.HideGumballs()
-    '                    Rhino.RhinoApp.WriteLine("DISPOSE HIDDEN")
-    '                End If
-    '            End If
-
-    '        End If
-    '        MyBase.Hidden = value
-    '    End Set
-    'End Property
+    Public Property GumballAttributes(ByVal Index As Integer) As Integer
+        'Translate = 0  
+        'Planar translate = 1  
+        'Free translate = 2  
+        'Rotate = 3 a 
+        'Scale = 4  
+        'Radius = 5  
+        'Head = 6  
+        'Thickness = 7  
+        'Plane size = 8  
+        'Plane distance = 9 
+        Get
+            Return MyGumballAttributes(Index)
+        End Get
+        Set(value As Integer)
+            MyGumballAttributes(Index) = value
+        End Set
+    End Property
 
     Public MyGumball As GhGumball
     Private Cache As New List(Of GeometryBase)
+    Private MyGumballAttributes As Integer() = New Integer(9) {1, 1, 2, 1, 1, 50, 5, 2, 15, 35}
+    Public AttForm As FormAttributes = Nothing
+    Public ChangeAttributes As New Boolean
 
     Protected Overrides Sub SolveInstance(DA As IGH_DataAccess)
 
@@ -181,9 +279,17 @@ Public Class GumballComp
         Dim Data As New List(Of Types.IGH_GeometricGoo)
 
         'Get input data.
-        If Not (DA.GetDataList(0, Data)) Then
-            ClearCache()
-            Exit Sub
+        If Not (DA.GetDataList(0, Data)) Then Exit Sub
+
+        'Get geometry to align.
+        If (Me.Params.Input.Count = 2) AndAlso (MyGumball IsNot Nothing) Then
+            If (Me.Params.Input(1).VolatileDataCount > 0) Then
+                Dim gg As Types.IGH_GeometricGoo = Nothing
+                DA.GetData(1, gg)
+                Dim g As GeometryBase = Grasshopper.Kernel.GH_Convert.ToGeometryBase(gg).Duplicate()
+                MyGumball.AlignToGeometry(g)
+            End If
+
         End If
 
         'GeometryGoo to GeometryBase.
@@ -197,13 +303,14 @@ Public Class GumballComp
         If (Cache.Count = 0) Then Cache = InputData
 
         'Test if new inputdata
-        If Not (AreEquals(Cache, InputData)) Then ClearCache()
+        If Not (AreEquals(Cache, InputData)) Then Menu_ClearCache()
 
         'Create Gumball class.
         If (MyGumball Is Nothing) Then
             Dim inputDataFree As GeometryBase() = New GeometryBase(InputData.Count - 1) {}
             For i As Int32 = 0 To InputData.Count - 1
                 inputDataFree(i) = InputData(i).Duplicate
+                inputDataFree(i).MakeDeformable()
             Next
             MyGumball = New GhGumball(inputDataFree, Me)
         End If
@@ -311,7 +418,6 @@ Public Class GumballComp
     End Function
 
 #Region "Write/Read"
-
     Public Overrides Function Write(ByVal writer As GH_IO.Serialization.GH_IWriter) As Boolean
         Try
             If (MyGumball IsNot Nothing) Then MyGumball.GumballWriter(writer)
@@ -331,13 +437,32 @@ Public Class GumballComp
         'Attributes.
         Try
             Dim att As GH_IO.Serialization.GH_Chunk = reader.FindChunk("gumballattributes")
-            Me.SetValue("gbatt", att.GetInt32("val", 0))
-            Me.SetValue("radius", att.GetInt32("rad", 1))
+
+            Dim att0 As GH_IO.Serialization.GH_Chunk = att.FindChunk("gumballattributes_values", 0)
+            Me.GumballAttributes(0) = att0.GetInt32("GhAtt_Translate", 0)
+            Me.GumballAttributes(1) = att0.GetInt32("GhAtt_PlanarTranslate", 1)
+            Me.GumballAttributes(2) = att0.GetInt32("GhAtt_FreeTranslate", 2)
+            Me.GumballAttributes(3) = att0.GetInt32("GhAtt_Rotate", 3)
+            Me.GumballAttributes(4) = att0.GetInt32("GhAtt_Scale", 4)
+            Me.GumballAttributes(5) = att0.GetInt32("GhAtt_Radius", 5)
+            Me.GumballAttributes(6) = att0.GetInt32("GhAtt_ArrowHead", 6)
+            Me.GumballAttributes(7) = att0.GetInt32("GhAtt_Thickness", 7)
+            Me.GumballAttributes(8) = att0.GetInt32("GhAtt_PlaneSize", 8)
+            Me.GumballAttributes(9) = att0.GetInt32("GhAtt_PlaneDistance", 9)
+
+            Dim att1 As GH_IO.Serialization.GH_Chunk = att.FindChunk("gumballattributes_modes", 1)
+            Me.ModeValue(0) = att1.GetInt32("valmode", 0)
+            Me.ModeValue(1) = att1.GetInt32("attmode", 1)
+            Me.ModeValue(2) = att1.GetBoolean("aligntogeometry", 2)
+
         Catch ex As Exception
             Rhino.RhinoApp.WriteLine("READ_COMP_Attributes; " & ex.ToString())
         End Try
 
-        If (gb IsNot Nothing) Then MyGumball = New GhGumball(gb, Me)
+        If (gb IsNot Nothing) Then
+            MyGumball = New GhGumball(gb, Me)
+            MyGumball.ChangeAppearance()
+        End If
 
         Return MyBase.Read(reader)
     End Function
@@ -345,7 +470,7 @@ Public Class GumballComp
 
 End Class
 
-Public Class GumballAtt
+Public Class GumballCompAtt
     Inherits Grasshopper.Kernel.Attributes.GH_ComponentAttributes
 
     Private MyOwner As GumballComp
@@ -379,6 +504,7 @@ Public Class GumballAtt
                 Else
                     MyOwner.MyGumball.HideGumballs()
                 End If
+                If (MyOwner.Params.Input(0).VolatileData.DataCount = 0) Then MyOwner.MyGumball.HideGumballs()
             End If
 
             MyBase.Selected = value
@@ -396,6 +522,7 @@ Public Class GhGumball
     Private MyCallBack As CustomCallBack
     Public Count As Integer
     Public Component As GumballComp
+    Private GeometrytoAlign As GeometryBase
 
     Sub New()
     End Sub
@@ -416,12 +543,71 @@ Public Class GhGumball
             'Gumball appearance.
             Dim app As New Rhino.UI.Gumball.GumballAppearanceSettings
             app.MenuEnabled = False
-            If (comp IsNot Nothing) Then
-                app.Radius = comp.Radius
+            If (comp Is Nothing) Then
+                app.Radius = 50
             Else
-                app.Radius = 60
+                'Translate.
+                If Me.Component.GumballAttributes(0) Then
+                    app.TranslateXEnabled = True
+                    app.TranslateYEnabled = True
+                    app.TranslateZEnabled = True
+                Else
+                    app.TranslateXEnabled = False
+                    app.TranslateYEnabled = False
+                    app.TranslateZEnabled = False
+                End If
+                'Free translate.
+                If (Me.Component.GumballAttributes(2)) Then
+                    app.FreeTranslate = 2
+                Else
+                    app.FreeTranslate = 0
+                End If
+                'Rotate.
+                If Me.Component.GumballAttributes(3) Then
+                    app.RotateXEnabled = True
+                    app.RotateYEnabled = True
+                    app.RotateZEnabled = True
+                Else
+                    app.RotateXEnabled = False
+                    app.RotateYEnabled = False
+                    app.RotateZEnabled = False
+                End If
+                'Scale.
+                If Me.Component.GumballAttributes(4) Then
+                    app.ScaleXEnabled = True
+                    app.ScaleYEnabled = True
+                    app.ScaleZEnabled = True
+                Else
+                    app.ScaleXEnabled = False
+                    app.ScaleYEnabled = False
+                    app.ScaleZEnabled = False
+                End If
+                'Radius.
+                app.Radius = Me.Component.GumballAttributes(5)
+                'Head.
+                app.ArrowHeadLength = Me.Component.GumballAttributes(6) * 2
+                app.ArrowHeadWidth = Me.Component.GumballAttributes(6)
+                'Thickness.
+                app.AxisThickness = Me.Component.GumballAttributes(7)
+                app.ArcThickness = Me.Component.GumballAttributes(7)
+                'Planar translate.
+                If Me.Component.GumballAttributes(1) Then
+                    app.TranslateXYEnabled = True
+                    app.TranslateYZEnabled = True
+                    app.TranslateZXEnabled = True
+                    'Plane size.
+                    app.PlanarTranslationGripSize = Me.Component.GumballAttributes(8)
+                    'Plane distance.
+                    app.PlanarTranslationGripCorner = Me.Component.GumballAttributes(9)
+                Else
+                    app.TranslateXYEnabled = False
+                    app.TranslateYZEnabled = False
+                    app.TranslateZXEnabled = False
+                    'Plane size.
+                    app.PlanarTranslationGripSize = 0
+                End If
             End If
-            If (Geo(i).ObjectType = Rhino.DocObjects.ObjectType.Point) Then
+            If (Geometry(i).ObjectType = Rhino.DocObjects.ObjectType.Point) Then
                 app.ScaleXEnabled = False
                 app.ScaleYEnabled = False
                 app.ScaleZEnabled = False
@@ -463,37 +649,6 @@ Public Class GhGumball
         Next
     End Sub
 
-    Public Sub UpdateGumball(ByVal Index As Integer)
-        If Not (Conduits(Index).InRelocate) Then
-            Dim xform As Transform = Conduits(Index).TotalTransform
-            Conduits(Index).PreTransform = xform
-        End If
-        Dim gbframe As Rhino.UI.Gumball.GumballFrame = Conduits(Index).Gumball.Frame
-        Dim baseFrame As Rhino.UI.Gumball.GumballFrame = Gumballs(Index).Frame
-        baseFrame.Plane = gbframe.Plane
-        baseFrame.ScaleGripDistance = gbframe.ScaleGripDistance
-        Gumballs(Index).Frame = baseFrame
-        Conduits(Index).SetBaseGumball(Gumballs(Index), Appearances(Index))
-        Conduits(Index).Enabled = True
-
-        Rhino.RhinoDoc.ActiveDoc.Views.Redraw()
-    End Sub
-
-    Public Sub UpdateGumball(ByVal i As Integer, xform As Transform)
-
-        Dim gbframe As Rhino.UI.Gumball.GumballFrame = Conduits(i).Gumball.Frame
-        Dim baseFrame As Rhino.UI.Gumball.GumballFrame = Gumballs(i).Frame
-        Dim pln As Plane = gbframe.Plane
-        pln.Transform(xform)
-        baseFrame.Plane = pln
-        baseFrame.ScaleGripDistance = gbframe.ScaleGripDistance
-        Gumballs(i).Frame = baseFrame
-        Conduits(i).SetBaseGumball(Gumballs(i), Appearances(i))
-        Conduits(i).Enabled = True
-
-        Rhino.RhinoDoc.ActiveDoc.Views.Redraw()
-    End Sub
-
     Public Sub ShowGumballs()
         For i As Int32 = 0 To Count - 1
             Conduits(i).Enabled = True
@@ -519,19 +674,191 @@ Public Class GhGumball
         MyCallBack.Enabled = False
     End Sub
 
-    Public Sub Resize(ByVal Radius As Integer)
+    Public Sub UpdateGumball(ByVal Index As Integer)
+        If Not (Conduits(Index).InRelocate) Then
+            Dim xform As Transform = Conduits(Index).TotalTransform
+            Conduits(Index).PreTransform = xform
+        End If
+        Dim gbframe As Rhino.UI.Gumball.GumballFrame = Conduits(Index).Gumball.Frame
+        Dim baseFrame As Rhino.UI.Gumball.GumballFrame = Gumballs(Index).Frame
+        baseFrame.Plane = gbframe.Plane
+        baseFrame.ScaleGripDistance = gbframe.ScaleGripDistance
+        Gumballs(Index).Frame = baseFrame
+        Conduits(Index).SetBaseGumball(Gumballs(Index), Appearances(Index))
+        Conduits(Index).Enabled = True
 
-        MyCallBack.Enabled = False
+        Rhino.RhinoDoc.ActiveDoc.Views.Redraw()
+
+        If (Me.Component.ModeValue(2)) AndAlso (GeometrytoAlign IsNot Nothing) Then AlignToGeometry(GeometrytoAlign)
+
+    End Sub
+
+    Public Sub UpdateGumball(ByVal i As Integer, xform As Transform)
+
+        Dim gbframe As Rhino.UI.Gumball.GumballFrame = Conduits(i).Gumball.Frame
+        Dim baseFrame As Rhino.UI.Gumball.GumballFrame = Gumballs(i).Frame
+        Dim pln As Plane = gbframe.Plane
+        pln.Transform(xform)
+        baseFrame.Plane = pln
+        baseFrame.ScaleGripDistance = gbframe.ScaleGripDistance
+        Gumballs(i).Frame = baseFrame
+        Conduits(i).SetBaseGumball(Gumballs(i), Appearances(i))
+        Conduits(i).Enabled = True
+
+        Rhino.RhinoDoc.ActiveDoc.Views.Redraw()
+
+        If (Me.Component.ModeValue(2)) AndAlso (GeometrytoAlign IsNot Nothing) Then AlignToGeometry(GeometrytoAlign)
+
+    End Sub
+
+    Public Sub ChangeAppearance()
+
         For i As Int32 = 0 To Count - 1
             Dim app As Rhino.UI.Gumball.GumballAppearanceSettings = Appearances(i)
-            If (Radius = app.Radius) Then Exit For
-            app.Radius = Radius
-            Appearances(i) = app
+
+            'Translate.
+            If Me.Component.GumballAttributes(0) Then
+                app.TranslateXEnabled = True
+                app.TranslateYEnabled = True
+                app.TranslateZEnabled = True
+            Else
+                app.TranslateXEnabled = False
+                app.TranslateYEnabled = False
+                app.TranslateZEnabled = False
+            End If
+            'Free translate.
+            If (Me.Component.GumballAttributes(2)) Then
+                app.FreeTranslate = 2
+            Else
+                app.FreeTranslate = 0
+            End If
+            'Rotate.
+            If Me.Component.GumballAttributes(3) Then
+                app.RotateXEnabled = True
+                app.RotateYEnabled = True
+                app.RotateZEnabled = True
+            Else
+                app.RotateXEnabled = False
+                app.RotateYEnabled = False
+                app.RotateZEnabled = False
+            End If
+            'Scale.
+            If Me.Component.GumballAttributes(4) Then
+                app.ScaleXEnabled = True
+                app.ScaleYEnabled = True
+                app.ScaleZEnabled = True
+            Else
+                app.ScaleXEnabled = False
+                app.ScaleYEnabled = False
+                app.ScaleZEnabled = False
+            End If
+            'Radius.
+            app.Radius = Me.Component.GumballAttributes(5)
+            'Head.
+            app.ArrowHeadLength = Me.Component.GumballAttributes(6) * 2
+            app.ArrowHeadWidth = Me.Component.GumballAttributes(6)
+            'Thickness.
+            app.AxisThickness = Me.Component.GumballAttributes(7)
+            app.ArcThickness = Me.Component.GumballAttributes(7)
+            'Planar translate.
+            If Me.Component.GumballAttributes(1) Then
+                app.TranslateXYEnabled = True
+                app.TranslateYZEnabled = True
+                app.TranslateZXEnabled = True
+                'Plane size.
+                app.PlanarTranslationGripSize = Me.Component.GumballAttributes(8)
+                'Plane distance.
+                app.PlanarTranslationGripCorner = Me.Component.GumballAttributes(9)
+            Else
+                app.TranslateXYEnabled = False
+                app.TranslateYZEnabled = False
+                app.TranslateZXEnabled = False
+                'Plane size.
+                app.PlanarTranslationGripSize = 0
+            End If
+
+
+            If (Geometry(i).ObjectType = Rhino.DocObjects.ObjectType.Point) Then
+                app.ScaleXEnabled = False
+                app.ScaleYEnabled = False
+                app.ScaleZEnabled = False
+            End If
+
             Conduits(i).Enabled = False
+            Appearances(i) = app
             Conduits(i).SetBaseGumball(Gumballs(i), Appearances(i))
             Conduits(i).Enabled = True
         Next
-        MyCallBack.Enabled = True
+        Rhino.RhinoDoc.ActiveDoc.Views.Redraw()
+    End Sub
+
+    Public Sub AlignToGeometry(Geo As GeometryBase)
+        GeometrytoAlign = Geo
+
+        For i As Int32 = 0 To Count - 1
+
+            Dim gbframe As Rhino.UI.Gumball.GumballFrame = Conduits(i).Gumball.Frame
+            Dim baseFrame As Rhino.UI.Gumball.GumballFrame = Gumballs(i).Frame
+
+            If (Geo.ObjectType = Rhino.DocObjects.ObjectType.Brep) Then
+                Dim brp As Brep = DirectCast(Geo, Brep)
+                Dim pln As Plane = gbframe.Plane
+                Dim cpt As New Point3d
+                Dim ci As ComponentIndex
+                Dim normal As New Vector3d
+                brp.ClosestPoint(gbframe.Plane.Origin, cpt, ci, Nothing, Nothing, 0, normal)
+                If Not (ci.ComponentIndexType = ComponentIndexType.BrepFace) Or Not (normal.IsValid) Then
+                    normal = New Vector3d(pln.Origin - cpt)
+                End If
+                Dim transform As Transform = Transform.Rotation(pln.ZAxis, normal, pln.Origin)
+                pln.Transform(transform)
+                gbframe.Plane = pln
+
+            ElseIf (Geo.ObjectType = Rhino.DocObjects.ObjectType.Mesh) Then
+                Dim msh As Mesh = DirectCast(Geo, Mesh)
+                Dim mshpt As MeshPoint = msh.ClosestMeshPoint(gbframe.Plane.Origin, 0.0)
+                Dim pln As Plane = gbframe.Plane
+                Dim transform As Transform = Transform.Rotation(pln.ZAxis, msh.NormalAt(mshpt), pln.Origin)
+                pln.Transform(transform)
+                gbframe.Plane = pln
+
+            ElseIf (Geo.ObjectType = Rhino.DocObjects.ObjectType.Curve) Then
+                Dim crv As Curve = DirectCast(Geo, Curve)
+                Dim t As New Double
+                crv.ClosestPoint(gbframe.Plane.Origin, t)
+                Dim pln As New Plane(gbframe.Plane.Origin, crv.TangentAt(t), Vector3d.CrossProduct(New Vector3d(gbframe.Plane.Origin - crv.PointAt(t)), crv.TangentAt(t)))
+                gbframe.Plane = pln
+
+            ElseIf (Geo.ObjectType = Rhino.DocObjects.ObjectType.Point) Then
+                Dim pt As Rhino.Geometry.Point = DirectCast(Geo, Rhino.Geometry.Point)
+                Dim pln As Plane = gbframe.Plane
+                Dim transform As Transform = Transform.Rotation(pln.ZAxis, New Vector3d(pln.Origin - pt.Location), pln.Origin)
+                pln.Transform(transform)
+                gbframe.Plane = pln
+
+            Else
+                Continue For
+            End If
+
+            baseFrame.Plane = gbframe.Plane
+            Gumballs(i).Frame = baseFrame
+            Conduits(i).SetBaseGumball(Gumballs(i), Appearances(i))
+            Conduits(i).Enabled = True
+
+        Next
+        Rhino.RhinoDoc.ActiveDoc.Views.Redraw()
+    End Sub
+
+    Public Sub RestoreGumball()
+        For i As Int32 = 0 To Count - 1
+            Dim gbframe As Rhino.UI.Gumball.GumballFrame = Conduits(i).Gumball.Frame
+            Dim baseFrame As Rhino.UI.Gumball.GumballFrame = Gumballs(i).Frame
+            gbframe.Plane = New Plane(gbframe.Plane.Origin, Vector3d.XAxis, Vector3d.YAxis)
+            baseFrame.Plane = gbframe.Plane
+            Gumballs(i).Frame = baseFrame
+            Conduits(i).SetBaseGumball(Gumballs(i), Appearances(i))
+            Conduits(i).Enabled = True
+        Next
         Rhino.RhinoDoc.ActiveDoc.Views.Redraw()
     End Sub
 
@@ -581,8 +908,22 @@ Public Class GhGumball
             'Attribute.
             writer.RemoveChunk("gumballattributes")
             Dim att As GH_IO.Serialization.GH_IWriter = writer.CreateChunk("gumballattributes")
-            att.SetInt32("val", 0, Me.Component.AttValue)
-            att.SetInt32("rad", 1, Me.Component.Radius)
+            Dim att0 As GH_IO.Serialization.GH_IWriter = att.CreateChunk("gumballattributes_values", 0)
+            att0.SetInt32("GhAtt_Translate", 0, Me.Component.GumballAttributes(0))
+            att0.SetInt32("GhAtt_PlanarTranslate", 1, Me.Component.GumballAttributes(1))
+            att0.SetInt32("GhAtt_FreeTranslate", 2, Me.Component.GumballAttributes(2))
+            att0.SetInt32("GhAtt_Rotate", 3, Me.Component.GumballAttributes(3))
+            att0.SetInt32("GhAtt_Scale", 4, Me.Component.GumballAttributes(4))
+            att0.SetInt32("GhAtt_Radius", 5, Me.Component.GumballAttributes(5))
+            att0.SetInt32("GhAtt_ArrowHead", 6, Me.Component.GumballAttributes(6))
+            att0.SetInt32("GhAtt_Thickness", 7, Me.Component.GumballAttributes(7))
+            att0.SetInt32("GhAtt_PlaneSize", 8, Me.Component.GumballAttributes(8))
+            att0.SetInt32("GhAtt_PlaneDistance", 9, Me.Component.GumballAttributes(9))
+
+            Dim att1 As GH_IO.Serialization.GH_IWriter = att.CreateChunk("gumballattributes_modes", 1)
+            att1.SetInt32("valmode", 0, Me.Component.ModeValue(0))
+            att1.SetInt32("attmode", 1, Me.Component.ModeValue(1))
+            att1.SetBoolean("aligntogeometry", 2, Me.Component.ModeValue(2))
 
         Catch ex As Exception
             Rhino.RhinoApp.WriteLine("WRITER_GB; " & ex.ToString())
@@ -634,7 +975,7 @@ Public Class GhGumball
                 gumobj(i) = gb
             Next
 
-            Dim readergumball As New GhGumball(Geom, Nothing)
+            Dim readergumball As New GhGumball(Geom, Me.Component)
             readergumball.Xform = transforms
             readergumball.Gumballs = gumobj
             Return readergumball
@@ -720,13 +1061,13 @@ Public Class CustomCallBack
 
         If (xform <> Transform.Identity) Then
 
-            If (G.Component.AttValue = 2) Then
+            If (G.Component.ModeValue(0) = 2) Then
                 G.UpdateGumball(Index)
             Else
 
                 Dim ghXform As New Grasshopper.Kernel.Types.GH_Transform(New Grasshopper.Kernel.Types.Transforms.Generic(xform))
 
-                If (G.Component.AttValue = 1) Then
+                If (G.Component.ModeValue(0) = 1) Then
 
                     For i As Int32 = 0 To G.Count - 1
                         For Each t As Grasshopper.Kernel.Types.Transforms.ITransform In ghXform.CompoundTransforms
@@ -739,7 +1080,6 @@ Public Class CustomCallBack
                         Else
                             G.UpdateGumball(i, xform)
                         End If
-
                     Next
                 Else
                     For Each t As Grasshopper.Kernel.Types.Transforms.ITransform In ghXform.CompoundTransforms
@@ -758,12 +1098,11 @@ Public Class CustomCallBack
 
 End Class
 
-Public Class FormRadius
+Public Class FormAttributes
     Inherits System.Windows.Forms.Form
 
     Private Component As GumballComp
-    Private components As System.ComponentModel.IContainer
-    Friend WithEvents NumericUpDown1 As NumericUpDown
+    Private CanSend As Boolean
 
     Sub New(Comp As GumballComp)
         Component = Comp
@@ -771,6 +1110,98 @@ Public Class FormRadius
         Me.Show()
     End Sub
 
+#Region "Events"
+    Private Sub Form1_Load(sender As Object, e As EventArgs) Handles MyBase.Load
+        CanSend = False
+        Me.ButtTranslate.Checked = Me.Component.GumballAttributes(0)
+        Me.ButtPlane.Checked = Me.Component.GumballAttributes(1)
+        Me.ButtFree.Checked = Me.Component.GumballAttributes(2)
+        Me.ButtRotate.Checked = Me.Component.GumballAttributes(3)
+        Me.ButtScale.Checked = Me.Component.GumballAttributes(4)
+        Me.NumRad.Value = New Decimal(New Integer() {Me.Component.GumballAttributes(5), 0, 0, 0})
+        Me.NumAH.Value = New Decimal(New Integer() {Me.Component.GumballAttributes(6), 0, 0, 0})
+        Me.NumThk.Value = New Decimal(New Integer() {Me.Component.GumballAttributes(7), 0, 0, 0})
+        Me.NumPS.Value = New Decimal(New Integer() {Me.Component.GumballAttributes(8), 0, 0, 0})
+        Me.NumPD.Value = New Decimal(New Integer() {Me.Component.GumballAttributes(9), 0, 0, 0})
+        CanSend = True
+    End Sub
+
+    Private Sub Form1_FormClosed(sender As Object, e As FormClosedEventArgs) Handles MyBase.FormClosed
+        Me.Component.AttForm = Nothing
+    End Sub
+
+    Private Sub ButtTranslate_CheckedChanged(sender As Object, e As EventArgs) Handles ButtTranslate.CheckedChanged
+        If (Me.Component.MyGumball IsNot Nothing) AndAlso (CanSend) Then
+            Me.Component.GumballAttributes(0) = Me.ButtTranslate.CheckState.value__
+            Me.Component.MyGumball.ChangeAppearance()
+        End If
+    End Sub
+
+    Private Sub ButtPlane_CheckedChanged(sender As Object, e As EventArgs) Handles ButtPlane.CheckedChanged
+        If (Me.Component.MyGumball IsNot Nothing) AndAlso (CanSend) Then
+            Me.Component.GumballAttributes(1) = Me.ButtPlane.CheckState.value__
+            Me.Component.MyGumball.ChangeAppearance()
+        End If
+    End Sub
+
+    Private Sub ButtFree_CheckedChanged(sender As Object, e As EventArgs) Handles ButtFree.CheckedChanged
+        If (Me.Component.MyGumball IsNot Nothing) AndAlso (CanSend) Then
+            Me.Component.GumballAttributes(2) = Me.ButtFree.CheckState.value__
+            Me.Component.MyGumball.ChangeAppearance()
+        End If
+    End Sub
+
+    Private Sub ButtRotate_CheckedChanged(sender As Object, e As EventArgs) Handles ButtRotate.CheckedChanged
+        If (Me.Component.MyGumball IsNot Nothing) AndAlso (CanSend) Then
+            Me.Component.GumballAttributes(3) = Me.ButtRotate.CheckState.value__
+            Me.Component.MyGumball.ChangeAppearance()
+        End If
+    End Sub
+
+    Private Sub ButtScale_CheckedChanged(sender As Object, e As EventArgs) Handles ButtScale.CheckedChanged
+        If (Me.Component.MyGumball IsNot Nothing) AndAlso (CanSend) Then
+            Me.Component.GumballAttributes(4) = Me.ButtScale.CheckState.value__
+            Me.Component.MyGumball.ChangeAppearance()
+        End If
+    End Sub
+
+    Private Sub NumRad_ValueChanged(sender As Object, e As EventArgs) Handles NumRad.ValueChanged
+        If (Me.Component.MyGumball IsNot Nothing) AndAlso (CanSend) Then
+            Me.Component.GumballAttributes(5) = CInt(Me.NumRad.Value)
+            Me.Component.MyGumball.ChangeAppearance()
+        End If
+    End Sub
+
+    Private Sub NumAH_ValueChanged(sender As Object, e As EventArgs) Handles NumAH.ValueChanged
+        If (Me.Component.MyGumball IsNot Nothing) AndAlso (CanSend) Then
+            Me.Component.GumballAttributes(6) = CInt(Me.NumAH.Value)
+            Me.Component.MyGumball.ChangeAppearance()
+        End If
+    End Sub
+
+    Private Sub NumThk_ValueChanged(sender As Object, e As EventArgs) Handles NumThk.ValueChanged
+        If (Me.Component.MyGumball IsNot Nothing) AndAlso (CanSend) Then
+            Me.Component.GumballAttributes(7) = CInt(Me.NumThk.Value)
+            Me.Component.MyGumball.ChangeAppearance()
+        End If
+    End Sub
+
+    Private Sub NumPS_ValueChanged(sender As Object, e As EventArgs) Handles NumPS.ValueChanged
+        If (Me.Component.MyGumball IsNot Nothing) AndAlso (CanSend) Then
+            Me.Component.GumballAttributes(8) = CInt(Me.NumPS.Value)
+            Me.Component.MyGumball.ChangeAppearance()
+        End If
+    End Sub
+
+    Private Sub NumPD_ValueChanged(sender As Object, e As EventArgs) Handles NumPD.ValueChanged
+        If (Me.Component.MyGumball IsNot Nothing) AndAlso (CanSend) Then
+            Me.Component.GumballAttributes(9) = CInt(Me.NumPD.Value)
+            Me.Component.MyGumball.ChangeAppearance()
+        End If
+    End Sub
+#End Region
+
+#Region "Design"
     Protected Overrides Sub Dispose(ByVal disposing As Boolean)
         Try
             If disposing AndAlso components IsNot Nothing Then
@@ -781,50 +1212,240 @@ Public Class FormRadius
         End Try
     End Sub
 
+    Private components As System.ComponentModel.IContainer
+
     Private Sub InitializeComponent()
-        Me.NumericUpDown1 = New System.Windows.Forms.NumericUpDown()
-        CType(Me.NumericUpDown1, System.ComponentModel.ISupportInitialize).BeginInit()
+        Me.NumRad = New System.Windows.Forms.NumericUpDown()
+        Me.ButtTranslate = New System.Windows.Forms.CheckBox()
+        Me.ButtPlane = New System.Windows.Forms.CheckBox()
+        Me.ButtRotate = New System.Windows.Forms.CheckBox()
+        Me.ButtScale = New System.Windows.Forms.CheckBox()
+        Me.LabelRad = New System.Windows.Forms.Label()
+        Me.NumAH = New System.Windows.Forms.NumericUpDown()
+        Me.LabelArrow = New System.Windows.Forms.Label()
+        Me.LabelThk = New System.Windows.Forms.Label()
+        Me.NumThk = New System.Windows.Forms.NumericUpDown()
+        Me.LabelPS = New System.Windows.Forms.Label()
+        Me.NumPS = New System.Windows.Forms.NumericUpDown()
+        Me.LabelPD = New System.Windows.Forms.Label()
+        Me.NumPD = New System.Windows.Forms.NumericUpDown()
+        Me.ButtFree = New System.Windows.Forms.CheckBox()
+        CType(Me.NumRad, System.ComponentModel.ISupportInitialize).BeginInit()
+        CType(Me.NumAH, System.ComponentModel.ISupportInitialize).BeginInit()
+        CType(Me.NumThk, System.ComponentModel.ISupportInitialize).BeginInit()
+        CType(Me.NumPS, System.ComponentModel.ISupportInitialize).BeginInit()
+        CType(Me.NumPD, System.ComponentModel.ISupportInitialize).BeginInit()
         Me.SuspendLayout()
         '
-        'NumericUpDown1
+        'ButtTranslate
         '
-        Me.NumericUpDown1.Location = New System.Drawing.Point(2, 3)
-        Me.NumericUpDown1.Maximum = New Decimal(New Integer() {200, 0, 0, 0})
-        Me.NumericUpDown1.Minimum = New Decimal(New Integer() {20, 0, 0, 0})
-        Me.NumericUpDown1.Name = "NumericUpDown1"
-        Me.NumericUpDown1.Size = New System.Drawing.Size(120, 20)
-        Me.NumericUpDown1.TabIndex = 0
-        Me.NumericUpDown1.Value = New Decimal(New Integer() {60, 0, 0, 0})
+        Me.ButtTranslate.CheckAlign = System.Drawing.ContentAlignment.MiddleRight
+        Me.ButtTranslate.Checked = True
+        Me.ButtTranslate.CheckState = System.Windows.Forms.CheckState.Checked
+        Me.ButtTranslate.Location = New System.Drawing.Point(12, 17)
+        Me.ButtTranslate.Name = "ButtTranslate"
+        Me.ButtTranslate.Size = New System.Drawing.Size(126, 17)
+        Me.ButtTranslate.TabIndex = 1
+        Me.ButtTranslate.Text = "Translate enabled"
+        Me.ButtTranslate.UseVisualStyleBackColor = True
+        '
+        'ButtPlane
+        '
+        Me.ButtPlane.CheckAlign = System.Drawing.ContentAlignment.MiddleRight
+        Me.ButtPlane.Checked = True
+        Me.ButtPlane.CheckState = System.Windows.Forms.CheckState.Checked
+        Me.ButtPlane.Location = New System.Drawing.Point(12, 40)
+        Me.ButtPlane.Name = "ButtPlane"
+        Me.ButtPlane.Size = New System.Drawing.Size(126, 17)
+        Me.ButtPlane.TabIndex = 2
+        Me.ButtPlane.Text = "Plane enabled"
+        Me.ButtPlane.UseVisualStyleBackColor = True
+        '
+        'ButtFree
+        '
+        Me.ButtFree.CheckAlign = System.Drawing.ContentAlignment.MiddleRight
+        Me.ButtFree.Checked = True
+        Me.ButtFree.ThreeState = False
+        Me.ButtFree.CheckState = System.Windows.Forms.CheckState.Checked
+        Me.ButtFree.Location = New System.Drawing.Point(12, 63)
+        Me.ButtFree.Name = "ButtFree"
+        Me.ButtFree.Size = New System.Drawing.Size(126, 17)
+        Me.ButtFree.TabIndex = 3
+        Me.ButtFree.Text = "Free translate enabled"
+        Me.ButtFree.UseVisualStyleBackColor = True
+        '
+        'ButtRotate
+        '
+        Me.ButtRotate.CheckAlign = System.Drawing.ContentAlignment.MiddleRight
+        Me.ButtRotate.Checked = True
+        Me.ButtRotate.CheckState = System.Windows.Forms.CheckState.Checked
+        Me.ButtRotate.Location = New System.Drawing.Point(12, 86)
+        Me.ButtRotate.Name = "ButtRotate"
+        Me.ButtRotate.Size = New System.Drawing.Size(126, 17)
+        Me.ButtRotate.TabIndex = 4
+        Me.ButtRotate.Text = "Rotate enabled"
+        Me.ButtRotate.UseVisualStyleBackColor = True
+        '
+        'ButtScale
+        '
+        Me.ButtScale.CheckAlign = System.Drawing.ContentAlignment.MiddleRight
+        Me.ButtScale.Checked = True
+        Me.ButtScale.CheckState = System.Windows.Forms.CheckState.Checked
+        Me.ButtScale.Location = New System.Drawing.Point(12, 109)
+        Me.ButtScale.Name = "ButtScale"
+        Me.ButtScale.Size = New System.Drawing.Size(126, 17)
+        Me.ButtScale.TabIndex = 5
+        Me.ButtScale.Text = "Scale enabled"
+        Me.ButtScale.UseVisualStyleBackColor = True
+        '
+        'NumRad
+        '
+        Me.NumRad.Location = New System.Drawing.Point(90, 132)
+        Me.NumRad.Maximum = New Decimal(New Integer() {200, 0, 0, 0})
+        Me.NumRad.Minimum = New Decimal(New Integer() {1, 0, 0, 0})
+        Me.NumRad.Name = "NumRad"
+        Me.NumRad.Size = New System.Drawing.Size(48, 20)
+        Me.NumRad.TabIndex = 6
+        Me.NumRad.Value = New Decimal(New Integer() {50, 0, 0, 0})
+        '
+        'NumAH
+        '
+        Me.NumAH.Location = New System.Drawing.Point(90, 158)
+        Me.NumAH.Maximum = New Decimal(New Integer() {50, 0, 0, 0})
+        Me.NumAH.Minimum = New Decimal(New Integer() {1, 0, 0, 0})
+        Me.NumAH.Name = "NumAH"
+        Me.NumAH.Size = New System.Drawing.Size(48, 20)
+        Me.NumAH.TabIndex = 7
+        Me.NumAH.Value = New Decimal(New Integer() {5, 0, 0, 0})
+        '
+        'NumThk
+        '
+        Me.NumThk.Location = New System.Drawing.Point(90, 184)
+        Me.NumThk.Maximum = New Decimal(New Integer() {30, 0, 0, 0})
+        Me.NumThk.Minimum = New Decimal(New Integer() {1, 0, 0, 0})
+        Me.NumThk.Name = "NumThk"
+        Me.NumThk.Size = New System.Drawing.Size(48, 20)
+        Me.NumThk.TabIndex = 8
+        Me.NumThk.Value = New Decimal(New Integer() {2, 0, 0, 0})
+        '
+        'NumPS
+        '
+        Me.NumPS.Location = New System.Drawing.Point(90, 210)
+        Me.NumPS.Maximum = New Decimal(New Integer() {100, 0, 0, 0})
+        Me.NumPS.Minimum = New Decimal(New Integer() {1, 0, 0, 0})
+        Me.NumPS.Name = "NumPS"
+        Me.NumPS.Size = New System.Drawing.Size(48, 20)
+        Me.NumPS.TabIndex = 9
+        Me.NumPS.Value = New Decimal(New Integer() {15, 0, 0, 0})
+        '
+        'NumPD
+        '
+        Me.NumPD.Location = New System.Drawing.Point(90, 236)
+        Me.NumPD.Maximum = New Decimal(New Integer() {200, 0, 0, 0})
+        Me.NumPD.Minimum = New Decimal(New Integer() {0, 0, 0, 0})
+        Me.NumPD.Name = "NumPD"
+        Me.NumPD.Size = New System.Drawing.Size(48, 20)
+        Me.NumPD.TabIndex = 10
+        Me.NumPD.Value = New Decimal(New Integer() {35, 0, 0, 0})
+        '
+        'LabelRad
+        '
+        Me.LabelRad.AutoSize = True
+        Me.LabelRad.Location = New System.Drawing.Point(12, 134)
+        Me.LabelRad.Name = "LabelRad"
+        Me.LabelRad.Size = New System.Drawing.Size(40, 13)
+        Me.LabelRad.TabIndex = 11
+        Me.LabelRad.Text = "Radius"
+        '
+        'LabelArrow
+        '
+        Me.LabelArrow.AutoSize = True
+        Me.LabelArrow.Location = New System.Drawing.Point(12, 160)
+        Me.LabelArrow.Name = "LabelArrow"
+        Me.LabelArrow.Size = New System.Drawing.Size(61, 13)
+        Me.LabelArrow.TabIndex = 12
+        Me.LabelArrow.Text = "Arrow head"
+        '
+        'LabelThk
+        '
+        Me.LabelThk.AutoSize = True
+        Me.LabelThk.Location = New System.Drawing.Point(12, 186)
+        Me.LabelThk.Name = "LabelThk"
+        Me.LabelThk.Size = New System.Drawing.Size(56, 13)
+        Me.LabelThk.TabIndex = 13
+        Me.LabelThk.Text = "Thickness"
+        '
+        'LabelPS
+        '
+        Me.LabelPS.AutoSize = True
+        Me.LabelPS.Location = New System.Drawing.Point(12, 212)
+        Me.LabelPS.Name = "LabelPS"
+        Me.LabelPS.Size = New System.Drawing.Size(55, 13)
+        Me.LabelPS.TabIndex = 14
+        Me.LabelPS.Text = "Plane size"
+        '
+        'LabelPD
+        '
+        Me.LabelPD.AutoSize = True
+        Me.LabelPD.Location = New System.Drawing.Point(12, 238)
+        Me.LabelPD.Name = "LabelPD"
+        Me.LabelPD.Size = New System.Drawing.Size(77, 13)
+        Me.LabelPD.TabIndex = 15
+        Me.LabelPD.Text = "Plane distance"
         '
         'Form1
         '
         Me.AutoScaleDimensions = New System.Drawing.SizeF(6.0!, 13.0!)
         Me.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font
-        Me.ClientSize = New System.Drawing.Size(124, 25)
-        Me.Controls.Add(Me.NumericUpDown1)
-        Me.FormBorderStyle = System.Windows.Forms.FormBorderStyle.FixedToolWindow
+        Me.ClientSize = New System.Drawing.Size(153, 273)
+        Me.Controls.Add(Me.ButtFree)
+        Me.Controls.Add(Me.LabelPD)
+        Me.Controls.Add(Me.NumPD)
+        Me.Controls.Add(Me.LabelPS)
+        Me.Controls.Add(Me.NumPS)
+        Me.Controls.Add(Me.LabelThk)
+        Me.Controls.Add(Me.NumThk)
+        Me.Controls.Add(Me.LabelArrow)
+        Me.Controls.Add(Me.NumAH)
+        Me.Controls.Add(Me.LabelRad)
+        Me.Controls.Add(Me.ButtScale)
+        Me.Controls.Add(Me.ButtRotate)
+        Me.Controls.Add(Me.ButtPlane)
+        Me.Controls.Add(Me.ButtTranslate)
+        Me.Controls.Add(Me.NumRad)
+        Me.FormBorderStyle = System.Windows.Forms.FormBorderStyle.FixedSingle
         Me.MaximizeBox = False
         Me.MinimizeBox = False
         Me.Name = "Form1"
         Me.ShowIcon = False
         Me.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen
         Me.Owner = Grasshopper.Instances.DocumentEditor
-        Me.Text = "Gumball Radius"
-        CType(Me.NumericUpDown1, System.ComponentModel.ISupportInitialize).EndInit()
+        Me.Text = "Gumball Attributes"
+        CType(Me.NumRad, System.ComponentModel.ISupportInitialize).EndInit()
+        CType(Me.NumAH, System.ComponentModel.ISupportInitialize).EndInit()
+        CType(Me.NumThk, System.ComponentModel.ISupportInitialize).EndInit()
+        CType(Me.NumPS, System.ComponentModel.ISupportInitialize).EndInit()
+        CType(Me.NumPD, System.ComponentModel.ISupportInitialize).EndInit()
         Me.ResumeLayout(False)
+        Me.PerformLayout()
 
     End Sub
 
-    Private Sub NumericUpDown1_ValueChanged(sender As Object, e As EventArgs) Handles NumericUpDown1.ValueChanged
-        Me.Component.Radius = CInt(Me.NumericUpDown1.Value)
-    End Sub
-
-    Private Sub FormRadius_FormClosed(sender As Object, e As FormClosedEventArgs) Handles MyBase.FormClosed
-        Me.Component.RadForm = Nothing
-    End Sub
-
-    Private Sub Form1_Load(sender As Object, e As EventArgs) Handles MyBase.Load
-        Me.NumericUpDown1.Value = New Decimal(New Integer() {Me.Component.Radius, 0, 0, 0})
-    End Sub
+    Friend WithEvents NumRad As NumericUpDown
+    Friend WithEvents ButtTranslate As CheckBox
+    Friend WithEvents ButtPlane As CheckBox
+    Friend WithEvents ButtRotate As CheckBox
+    Friend WithEvents ButtScale As CheckBox
+    Friend WithEvents LabelRad As Label
+    Friend WithEvents NumAH As NumericUpDown
+    Friend WithEvents LabelArrow As Label
+    Friend WithEvents LabelThk As Label
+    Friend WithEvents NumThk As NumericUpDown
+    Friend WithEvents LabelPS As Label
+    Friend WithEvents NumPS As NumericUpDown
+    Friend WithEvents LabelPD As Label
+    Friend WithEvents NumPD As NumericUpDown
+    Friend WithEvents ButtFree As CheckBox
+#End Region
 
 End Class
