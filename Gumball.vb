@@ -64,6 +64,13 @@ Public Class GumballComp
         End Set
     End Property
 
+    Protected Overrides Sub AfterSolveInstance()
+        If (MyGumball IsNot Nothing) Then
+            If (Me.Hidden) Then MyGumball.HideGumballs()
+            If Not (Me.Attributes.Selected) Then MyGumball.HideGumballs()
+        End If
+    End Sub
+
     Protected Overrides Sub AppendAdditionalComponentMenuItems(ByVal menu As Windows.Forms.ToolStripDropDown)
 
         Dim union As Windows.Forms.ToolStripMenuItem = Menu_AppendItem(menu, "Apply to all", AddressOf Me.Menu_ApplyToAll, True, Me.ModeValue(0) = 1)
@@ -1342,7 +1349,7 @@ Public Class FormAttributes
         '
         Me.NumPD.Location = New System.Drawing.Point(90, 236)
         Me.NumPD.Maximum = New Decimal(New Integer() {200, 0, 0, 0})
-        Me.NumPD.Minimum = New Decimal(New Integer() {0, 0, 0, 0})
+        Me.NumPD.Minimum = New Decimal(New Integer() {1, 0, 0, 0})
         Me.NumPD.Name = "NumPD"
         Me.NumPD.Size = New System.Drawing.Size(48, 20)
         Me.NumPD.TabIndex = 10
