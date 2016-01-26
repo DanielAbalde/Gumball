@@ -2,17 +2,20 @@
 Imports System.IO
 Imports System.Linq
 Imports System.Windows.Forms
+Imports Grasshopper
 Imports Grasshopper.Kernel
+Imports GH_IO.Serialization
 Imports Rhino.Display
 Imports Rhino.Geometry
-
+Imports Grasshopper.Kernel.Data
+Imports GH_IO
+Imports Grasshopper.Kernel.Undo
 
 Public Class GumballComp
     Inherits GH_Component
 
     Public Sub New()
         MyBase.New("Gumball ", "Gumball", "Gumball for Grasshopper geometry", "Params", "Util")
-        Me.ValuesChanged()
     End Sub
 
 #Region "Overrides"
@@ -29,12 +32,12 @@ Public Class GumballComp
     End Property
 
     Protected Overrides Sub RegisterInputParams(pManager As GH_Component.GH_InputParamManager)
-        pManager.AddGeometryParameter("Geometry", "G", "Geometry to add a gumball", GH_ParamAccess.list)
+        pManager.AddGeometryParameter("Geometry", "G", "Geometry to add a gumball", GH_ParamAccess.tree)
     End Sub
 
     Protected Overrides Sub RegisterOutputParams(pManager As GH_Component.GH_OutputParamManager)
-        pManager.AddGeometryParameter("Geometry", "G", "Transformed geometry", GH_ParamAccess.list)
-        pManager.AddTransformParameter("Transform", "X", "Transformation data", GH_ParamAccess.list)
+        pManager.AddGeometryParameter("Geometry", "G", "Transformed geometry", GH_ParamAccess.tree)
+        pManager.AddTransformParameter("Transform", "X", "Transformation data", GH_ParamAccess.tree)
     End Sub
 
     Public Overrides Sub CreateAttributes()
@@ -103,71 +106,11 @@ Public Class GumballComp
 
     End Sub
 
-    Protected Overrides Sub ValuesChanged()
-
-        Select Case Me.ModeValue(0)
-            Case 0
-                Me.Message = String.Empty
-            Case 1
-                Me.Message = "Apply to all"
-            Case 2
-                Me.Message = "Relocate"
-        End Select
-
-        If (ChangeAttributes) Then
-
-            Me.RecordUndoEvent("gumballattributes")
-
-            Select Case Me.ModeValue(1)
-                Case 0
-                    GumballAttributes(0) = 1
-                    GumballAttributes(1) = 1
-                    GumballAttributes(2) = 2
-                    GumballAttributes(3) = 1
-                    GumballAttributes(4) = 1
-                Case 1
-                    GumballAttributes(0) = 1
-                    GumballAttributes(1) = 0
-                    GumballAttributes(2) = 2
-                    GumballAttributes(3) = 0
-                    GumballAttributes(4) = 0
-                Case 2
-                    GumballAttributes(0) = 0
-                    GumballAttributes(1) = 0
-                    GumballAttributes(2) = 2
-                    GumballAttributes(3) = 0
-                    GumballAttributes(4) = 0
-            End Select
-
-            If (MyGumball IsNot Nothing) Then MyGumball.ChangeAppearance()
-            ChangeAttributes = False
-        End If
-
-        If (Me.ModeValue(2)) Then
-            If (Me.Params.Input.Count = 1) Then
-                Dim param As New Grasshopper.Kernel.Parameters.Param_Geometry
-                param.Name = "Geometry to align"
-                param.NickName = "A"
-                param.Description = "Use a geometry to align gumballs."
-                param.Access = GH_ParamAccess.item
-                Params.RegisterInputParam(param)
-                Params.OnParametersChanged()
-            End If
-        Else
-            If (Me.Params.Input.Count = 2) Then
-                Dim param As IGH_Param = Params.Input(1)
-                param.RemoveAllSources()
-                Params.UnregisterInputParameter(param)
-                Params.OnParametersChanged()
-            End If
-        End If
-
-        Me.ExpireSolution(True)
-    End Sub
 #End Region
 
 #Region "Menu"
     Private Sub Menu_ApplyToAll()
+        If (MyGumball IsNot Nothing) Then Me.RecordUndoEvent("Gumball Mode", New GbUndo(Me.MyGumball))
         If (1 = Me.ModeValue(0)) Then
             Me.ModeValue(0) = 0
         Else
@@ -176,10 +119,12 @@ Public Class GumballComp
     End Sub
 
     Private Sub Menu_AlingToGeometry()
+        If (MyGumball IsNot Nothing) Then Me.RecordUndoEvent("Gumball Mode", New GbUndo(Me.MyGumball))
         Me.ModeValue(2) = CInt(Not CBool(Me.ModeValue(2)))
     End Sub
 
     Private Sub Menu_RelocateG()
+        If (MyGumball IsNot Nothing) Then Me.RecordUndoEvent("Gumball Mode", New GbUndo(Me.MyGumball))
         If (2 = Me.ModeValue(0)) Then
             Me.ModeValue(0) = 0
         Else
@@ -196,26 +141,43 @@ Public Class GumballComp
     End Sub
 
     Private Sub Menu_OnlyArrows()
-        If (1 = Me.ModeValue(1)) Then
-            Me.ModeValue(1) = 0
+        If (MyGumball Is Nothing) Then Exit Sub
+        Me.RecordUndoEvent("Gumball Attributes", New GbUndo(Me.MyGumball))
+        If (ModeValueAtt = 1) Then
+            ModeValueAtt = 0
+            MyGumball.CustomAppearance = New Integer(9) {1, 1, 2, 1, 1, MyGumball.CustomAppearance(5), MyGumball.CustomAppearance(6),
+                MyGumball.CustomAppearance(7), MyGumball.CustomAppearance(8), MyGumball.CustomAppearance(9)}
         Else
-            Me.ModeValue(1) = 1
+            ModeValueAtt = 1
+            MyGumball.CustomAppearance = New Integer(9) {1, 0, 2, 0, 0, MyGumball.CustomAppearance(5), MyGumball.CustomAppearance(6),
+                MyGumball.CustomAppearance(7), MyGumball.CustomAppearance(8), MyGumball.CustomAppearance(9)}
         End If
+
     End Sub
 
     Private Sub Menu_FreeTranslate()
-        If (2 = Me.ModeValue(1)) Then
-            Me.ModeValue(1) = 0
+        If (MyGumball Is Nothing) Then Exit Sub
+        Me.RecordUndoEvent("Gumball Attributes", New GbUndo(Me.MyGumball))
+
+        If (ModeValueAtt = 2) Then
+            ModeValueAtt = 0
+            MyGumball.CustomAppearance = New Integer(9) {1, 1, 2, 1, 1, MyGumball.CustomAppearance(5), MyGumball.CustomAppearance(6),
+                 MyGumball.CustomAppearance(7), MyGumball.CustomAppearance(8), MyGumball.CustomAppearance(9)}
         Else
-            Me.ModeValue(1) = 2
+            ModeValueAtt = 2
+            MyGumball.CustomAppearance = New Integer(9) {0, 0, 2, 0, 0, MyGumball.CustomAppearance(5), MyGumball.CustomAppearance(6),
+                MyGumball.CustomAppearance(7), MyGumball.CustomAppearance(8), MyGumball.CustomAppearance(9)}
         End If
+
     End Sub
 
     Private Sub Menu_Reset()
+        Me.RecordUndoEvent("Gumball Reset")
         If (MyGumball IsNot Nothing) Then MyGumball.RestoreGumball()
     End Sub
 
     Public Sub Menu_ClearCache()
+        Me.RecordUndoEvent("Gumball Clear Cache")
         Me.Cache.Clear()
         If (MyGumball IsNot Nothing) Then MyGumball.Dispose()
         Me.MyGumball = Nothing
@@ -224,6 +186,31 @@ Public Class GumballComp
     End Sub
 #End Region
 
+    Private Sub EventAddParamAlign()
+
+        If (Me.ModeValue(2)) Then
+            If (Me.Params.Input.Count = 1) Then
+                Dim param As New Grasshopper.Kernel.Parameters.Param_Geometry
+                param.Optional = True
+                param.Name = "Geometry to align"
+                param.NickName = "A"
+                param.Description = "Use a geometry to align gumballs."
+                param.Access = GH_ParamAccess.item
+                Params.RegisterInputParam(param)
+                Params.OnParametersChanged()
+            End If
+        Else
+            If (Me.Params.Input.Count = 2) Then
+                MyGumball.GeometrytoAlign = Nothing
+                Dim param As IGH_Param = Params.Input(1)
+                param.RemoveAllSources()
+                Params.UnregisterInputParameter(param)
+                Params.OnParametersChanged()
+            End If
+        End If
+        Me.ExpireSolution(True)
+    End Sub
+
     Public Property ModeValue(ByVal index As Integer) As Integer
         'Gumball mode = 0
         'Gumball attributes = 1
@@ -231,62 +218,58 @@ Public Class GumballComp
         Get
             Select Case index
                 Case 0
-                    Return Me.GetValue("mode", 0)
+                    Return ModeValueType
                 Case 1
-                    Return Me.GetValue("att", 0)
+                    Return ModeValueAtt
                 Case 2
-                    Return Me.GetValue("align", False)
+                    Return ModeValueAlign
                 Case Else
                     Throw New ArgumentOutOfRangeException()
             End Select
         End Get
         Set(value As Integer)
+
             Select Case index
                 Case 0
-                    Me.SetValue("mode", value)
+                    ModeValueType = value
+
+                    Select Case value
+                        Case 0
+                            Me.Message = String.Empty
+                        Case 1
+                            Me.Message = "Apply to all"
+                        Case 2
+                            Me.Message = "Relocate"
+                    End Select
+
+                    Me.ExpireSolution(True)
                 Case 1
-                    ChangeAttributes = True
-                    Me.SetValue("att", value)
+                    ModeValueAtt = value
                 Case 2
-                    Me.SetValue("align", value)
+                    ModeValueAlign = value
+                    EventAddParamAlign()
                 Case Else
                     Throw New ArgumentOutOfRangeException()
             End Select
-        End Set
-    End Property
-
-    Public Property GumballAttributes(ByVal Index As Integer) As Integer
-        'Translate = 0  
-        'Planar translate = 1  
-        'Free translate = 2  
-        'Rotate = 3 a 
-        'Scale = 4  
-        'Radius = 5  
-        'Head = 6  
-        'Thickness = 7  
-        'Plane size = 8  
-        'Plane distance = 9 
-        Get
-            Return MyGumballAttributes(Index)
-        End Get
-        Set(value As Integer)
-            MyGumballAttributes(Index) = value
         End Set
     End Property
 
     Public MyGumball As GhGumball
-    Private Cache As New List(Of GeometryBase)
-    Private MyGumballAttributes As Integer() = New Integer(9) {1, 1, 2, 1, 1, 50, 5, 2, 15, 35}
+    Private Cache As New DataTree(Of GeometryBase)
+    Private Paths As GH_Path()
     Public AttForm As FormAttributes = Nothing
-    Public ChangeAttributes As New Boolean
+    Private MyGumballAttributes As Integer() = New Integer(9) {1, 1, 2, 1, 1, 50, 5, 2, 15, 35}
+
+    Private ModeValueType As New Integer
+    Private ModeValueAlign As New Boolean
+    Private ModeValueAtt As New Integer
 
     Protected Overrides Sub SolveInstance(DA As IGH_DataAccess)
-
-        Dim InputData As New List(Of GeometryBase)
-        Dim Data As New List(Of Types.IGH_GeometricGoo)
+        Dim Data As New GH_Structure(Of Types.IGH_GeometricGoo)
+        Dim InputData As New DataTree(Of GeometryBase)
 
         'Get input data.
-        If Not (DA.GetDataList(0, Data)) Then Exit Sub
+        If Not (DA.GetDataTree(0, Data)) Then Exit Sub
 
         'Get geometry to align.
         If (Me.Params.Input.Count = 2) AndAlso (MyGumball IsNot Nothing) Then
@@ -294,181 +277,207 @@ Public Class GumballComp
                 Dim gg As Types.IGH_GeometricGoo = Nothing
                 DA.GetData(1, gg)
                 Dim g As GeometryBase = Grasshopper.Kernel.GH_Convert.ToGeometryBase(gg).Duplicate()
-                MyGumball.AlignToGeometry(g)
+                If ((MyGumball.GeometrytoAlign Is Nothing)) Then
+                    MyGumball.AlignToGeometry(g)
+                Else
+                    Dim gtree As New DataTree(Of GeometryBase)
+                    gtree.Add(g, New GH_Path(0))
+                    Dim atree As New DataTree(Of GeometryBase)
+                    atree.Add(MyGumball.GeometrytoAlign, New GH_Path(0))
+
+                    If Not (AreEquals(gtree, atree)) Then
+                        MyGumball.AlignToGeometry(g)
+                        If (Attributes.Selected) Then MyGumball.ShowGumballs()
+                    End If
+                End If
+            End If
             End If
 
-        End If
-
         'GeometryGoo to GeometryBase.
-        For Each d As Types.IGH_GeometricGoo In Data
-            Dim g As GeometryBase = Grasshopper.Kernel.GH_Convert.ToGeometryBase(d)
-            If (g Is Nothing) Then Continue For
-            InputData.Add(g)
+        For Each b As GH_Path In Data.Paths
+            For Each d As Types.IGH_GeometricGoo In Data.DataList(b)
+                Dim g As GeometryBase = Grasshopper.Kernel.GH_Convert.ToGeometryBase(d).Duplicate()
+                If (g Is Nothing) Then Continue For
+                InputData.Add(g, b)
+            Next
         Next
 
         'Set cache.
-        If (Cache.Count = 0) Then Cache = InputData
-
-        'Test if new inputdata
-        If Not (AreEquals(Cache, InputData)) Then Menu_ClearCache()
+        If (Cache.DataCount = 0) Then
+            SetCache(InputData)
+        Else
+            'Test if new inputdata
+            If Not (AreEquals(Cache, InputData)) Then
+                Cache.Clear()
+                If (MyGumball IsNot Nothing) Then MyGumball.Dispose()
+                MyGumball = Nothing
+                SetCache(InputData)
+            End If
+        End If
 
         'Create Gumball class.
         If (MyGumball Is Nothing) Then
-            Dim inputDataFree As GeometryBase() = New GeometryBase(InputData.Count - 1) {}
-            For i As Int32 = 0 To InputData.Count - 1
-                inputDataFree(i) = InputData(i).Duplicate
+            Dim inputDataFree As GeometryBase() = New GeometryBase(InputData.DataCount - 1) {}
+            Dim tolist As List(Of GeometryBase) = InputData.AllData()
+            For i As Int32 = 0 To tolist.Count - 1
+                inputDataFree(i) = tolist(i).Duplicate
                 inputDataFree(i).MakeDeformable()
             Next
             MyGumball = New GhGumball(inputDataFree, Me)
+            If (Me.Attributes.Selected) Then MyGumball.ShowGumballs()
         End If
 
         'Set output data.
-        Data.Clear()
-        For Each g As GeometryBase In MyGumball.Geometry
-            Dim d As Types.IGH_GeometricGoo = GH_Convert.ToGeometricGoo(g)
-            If (d Is Nothing) Then Continue For
-            Data.Add(d)
-        Next
-        DA.SetDataList(0, Data)
-        DA.SetDataList(1, MyGumball.Xform.ToList())
+        Dim DataOutput As New GH_Structure(Of Types.IGH_GeometricGoo)
+        Dim DataOutput2 As New GH_Structure(Of Types.GH_Transform)
+        If (Paths.Count > 0) Then
+            For i As Int32 = 0 To MyGumball.Count - 1
+                Dim d As Types.IGH_GeometricGoo = GH_Convert.ToGeometricGoo(MyGumball.Geometry(i))
+                DataOutput.Append(d, Paths(i))
+                DataOutput2.Append(MyGumball.Xform(i), Paths(i))
+            Next
+        End If
 
+        DA.SetDataTree(0, DataOutput)
+        DA.SetDataTree(1, DataOutput2)
 
     End Sub
 
-    Private Function AreEquals(ByVal A As List(Of GeometryBase), ByVal B As List(Of GeometryBase)) As Boolean
-        If (A.Count <> B.Count) Then
+    Private Sub SetCache(_InputData As DataTree(Of GeometryBase))
+
+        Cache.Clear()
+        Paths = New GH_Path(_InputData.DataCount - 1) {}
+        Dim count As New Integer
+        For i As Int32 = 0 To _InputData.BranchCount - 1
+            For j As Int32 = 0 To _InputData.Branch(i).Count - 1
+                Cache.Add(_InputData.Branch(i)(j).Duplicate(), _InputData.Path(i))
+                Paths(count) = _InputData.Path(i)
+                count += 1
+            Next
+        Next
+    End Sub
+
+    Private Function AreEquals(ByVal A As DataTree(Of GeometryBase), ByVal B As DataTree(Of GeometryBase)) As Boolean
+        If (A.DataCount <> B.DataCount) Then
+            ' Rhino.RhinoApp.WriteLine("Distinto DataCount")
             Return False
             Exit Function
         End If
-        For i As Int32 = 0 To A.Count - 1
-            If (A(i).ObjectType <> B(i).ObjectType) Then
-                Return False
-                Exit Function
-            End If
-            Select Case A(i).ObjectType
-                Case Rhino.DocObjects.ObjectType.Point
-                    Dim ptA As Rhino.Geometry.Point = DirectCast(A(i), Rhino.Geometry.Point)
-                    Dim ptB As Rhino.Geometry.Point = DirectCast(B(i), Rhino.Geometry.Point)
-                    If (New Point3d(Math.Round(ptA.Location.X, 4), Math.Round(ptA.Location.Y, 4), Math.Round(ptA.Location.Z, 4)) <>
+        If (A.BranchCount <> B.BranchCount) Then
+            ' Rhino.RhinoApp.WriteLine("Distinto BranchCount")
+            Return False
+            Exit Function
+        End If
+        For br As Int32 = 0 To A.BranchCount - 1
+            For i As Int32 = 0 To A.Branch(br).Count - 1
+                If (A.Path(br) <> B.Path(br)) Then
+                    ' Rhino.RhinoApp.WriteLine("Distinto Path")
+                    Return False
+                    Exit Function
+                End If
+                If (A.Branch(br)(i).ObjectType <> B.Branch(br)(i).ObjectType) Then
+                    ' Rhino.RhinoApp.WriteLine("Distinto ObjectType")
+                    Return False
+                    Exit Function
+                End If
+                Select Case A.Branch(br)(i).ObjectType
+                    Case Rhino.DocObjects.ObjectType.Point
+                        Dim ptA As Rhino.Geometry.Point = DirectCast(A.Branch(br)(i), Rhino.Geometry.Point)
+                        Dim ptB As Rhino.Geometry.Point = DirectCast(B.Branch(br)(i), Rhino.Geometry.Point)
+                        If (New Point3d(Math.Round(ptA.Location.X, 4), Math.Round(ptA.Location.Y, 4), Math.Round(ptA.Location.Z, 4)) <>
             New Point3d(Math.Round(ptB.Location.X, 4), Math.Round(ptB.Location.Y, 4), Math.Round(ptB.Location.Z, 4))) Then
-                        Return False
-                        Exit Function
-                    End If
-                Case Rhino.DocObjects.ObjectType.Curve
-                    Dim CrvA As Curve = DirectCast(A(i), Curve)
-                    Dim CrvB As Curve = DirectCast(B(i), Curve)
-                    If (CrvA.ObjectType <> CrvB.ObjectType) Then
-                        Return False
-                        Exit Function
-                    End If
-                    If (CrvA.GetLength() <> CrvB.GetLength()) Then
-                        Return False
-                        Exit Function
-                    End If
-                    If (CrvA.Degree <> CrvB.Degree) Or (CrvA.Dimension <> CrvB.Dimension) Or (CrvA.Domain <> CrvB.Domain) Or
+                            Return False
+                            Exit Function
+                        End If
+                    Case Rhino.DocObjects.ObjectType.Curve
+                        Dim CrvA As Curve = DirectCast(A.Branch(br)(i), Curve)
+                        Dim CrvB As Curve = DirectCast(B.Branch(br)(i), Curve)
+                        If (CrvA.ObjectType <> CrvB.ObjectType) Then
+                            Return False
+                            Exit Function
+                        End If
+                        If (CrvA.GetLength() <> CrvB.GetLength()) Then
+                            Return False
+                            Exit Function
+                        End If
+                        If (CrvA.Degree <> CrvB.Degree) Or (CrvA.Dimension <> CrvB.Dimension) Or (CrvA.Domain <> CrvB.Domain) Or
                             (CrvA.IsClosed <> CrvB.IsClosed) Or (CrvA.IsPeriodic <> CrvB.IsPeriodic) Or (CrvA.SpanCount <> CrvB.SpanCount) Then
-                        Return False
-                        Exit Function
-                    End If
-                    Dim paramA As Double() = CrvA.DivideByCount(40, True)
-                    Dim paramB As Double() = CrvA.DivideByCount(40, True)
-                    For j As Int32 = 0 To paramA.Count - 1
-                        If (paramA(j) <> paramB(j)) Then
                             Return False
                             Exit Function
                         End If
-                    Next
+                        Dim paramA As Double() = CrvA.DivideByCount(40, True)
+                        Dim paramB As Double() = CrvA.DivideByCount(40, True)
+                        For j As Int32 = 0 To paramA.Count - 1
+                            If (paramA(j) <> paramB(j)) Then
+                                Return False
+                                Exit Function
+                            End If
+                        Next
 
-                Case Rhino.DocObjects.ObjectType.Brep
-                    Dim BrpA As Brep = DirectCast(A(i), Brep)
-                    Dim BrpB As Brep = DirectCast(B(i), Brep)
-                    If (BrpA.Vertices.Count <> BrpB.Vertices.Count) Then
-                        Return False
-                        Exit Function
-                    End If
-                    If (BrpA.Surfaces.Count <> BrpB.Surfaces.Count) Then
-                        Return False
-                        Exit Function
-                    End If
-                    If (BrpA.Edges.Count <> BrpB.Edges.Count) Then
-                        Return False
-                        Exit Function
-                    End If
-                    For j As Int32 = 0 To BrpA.Vertices.Count - 1
-                        If (New Point3d(Math.Round(BrpA.Vertices(j).Location.X, 4), Math.Round(BrpA.Vertices(j).Location.Y, 4), Math.Round(BrpA.Vertices(j).Location.Z, 4)) <>
+                    Case Rhino.DocObjects.ObjectType.Brep
+                        Dim BrpA As Brep = DirectCast(A.Branch(br)(i), Brep)
+                        Dim BrpB As Brep = DirectCast(B.Branch(br)(i), Brep)
+                        If (BrpA.Vertices.Count <> BrpB.Vertices.Count) Then
+                            '     Rhino.RhinoApp.WriteLine("Distinto VerticesCount")
+                            Return False
+                            Exit Function
+                        End If
+                        If (BrpA.Surfaces.Count <> BrpB.Surfaces.Count) Then
+                            '    Rhino.RhinoApp.WriteLine("Distinto SrfCount")
+                            Return False
+                            Exit Function
+                        End If
+                        If (BrpA.Edges.Count <> BrpB.Edges.Count) Then
+                            '   Rhino.RhinoApp.WriteLine("Distinto EdgeCount")
+                            Return False
+                            Exit Function
+                        End If
+                        For j As Int32 = 0 To BrpA.Vertices.Count - 1
+                            If (New Point3d(Math.Round(BrpA.Vertices(j).Location.X, 4), Math.Round(BrpA.Vertices(j).Location.Y, 4), Math.Round(BrpA.Vertices(j).Location.Z, 4)) <>
               New Point3d(Math.Round(BrpB.Vertices(j).Location.X, 4), Math.Round(BrpB.Vertices(j).Location.Y, 4), Math.Round(BrpB.Vertices(j).Location.Z, 4))) Then
+                                '     Rhino.RhinoApp.WriteLine("Distinto Vertices")
+                                Return False
+                                Exit Function
+                            End If
+                        Next
+                    Case Rhino.DocObjects.ObjectType.Mesh
+                        Dim mshA As Mesh = DirectCast(A.Branch(br)(i), Mesh)
+                        Dim mshB As Mesh = DirectCast(B.Branch(br)(i), Mesh)
+                        If (mshA.Vertices.Count <> mshB.Vertices.Count) Then
                             Return False
                             Exit Function
                         End If
-                    Next
-                Case Rhino.DocObjects.ObjectType.Mesh
-                    Dim mshA As Mesh = DirectCast(A(i), Mesh)
-                    Dim mshB As Mesh = DirectCast(B(i), Mesh)
-                    If (mshA.Vertices.Count <> mshB.Vertices.Count) Then
-                        Return False
-                        Exit Function
-                    End If
-                    If (mshA.Faces.Count <> mshB.Faces.Count) Then
-                        Return False
-                        Exit Function
-                    End If
-                    For j As Int32 = 0 To mshA.Vertices.Count - 1
-                        If (New Point3d(Math.Round(mshA.Vertices(j).X, 4), Math.Round(mshA.Vertices(j).Y, 4), Math.Round(mshA.Vertices(j).Z, 4)) <>
+                        If (mshA.Faces.Count <> mshB.Faces.Count) Then
+                            Return False
+                            Exit Function
+                        End If
+                        For j As Int32 = 0 To mshA.Vertices.Count - 1
+                            If (New Point3d(Math.Round(mshA.Vertices(j).X, 4), Math.Round(mshA.Vertices(j).Y, 4), Math.Round(mshA.Vertices(j).Z, 4)) <>
               New Point3d(Math.Round(mshB.Vertices(j).X, 4), Math.Round(mshB.Vertices(j).Y, 4), Math.Round(mshB.Vertices(j).Z, 4))) Then
-                            Return False
-                            Exit Function
-                        End If
-                    Next
-            End Select
+                                Return False
+                                Exit Function
+                            End If
+                        Next
+                End Select
+            Next
         Next
         Return True
     End Function
 
 #Region "Write/Read"
+
     Public Overrides Function Write(ByVal writer As GH_IO.Serialization.GH_IWriter) As Boolean
-        Try
-            If (MyGumball IsNot Nothing) Then MyGumball.GumballWriter(writer)
-        Catch ex As Exception
-            Rhino.RhinoApp.WriteLine("WRITER_COMP; " & ex.ToString())
-        End Try
+        If (MyGumball IsNot Nothing) Then MyGumball.GumballWriter(writer)
         Return MyBase.Write(writer)
     End Function
 
     Public Overrides Function Read(ByVal reader As GH_IO.Serialization.GH_IReader) As Boolean
-        If (MyGumball IsNot Nothing) Then
-            MyGumball.Dispose()
-        End If
-        Dim newgh As New GhGumball()
-        Dim gb As GhGumball = newgh.GumballReader(reader)
 
-        'Attributes.
-        Try
-            Dim att As GH_IO.Serialization.GH_Chunk = reader.FindChunk("gumballattributes")
-
-            Dim att0 As GH_IO.Serialization.GH_Chunk = att.FindChunk("gumballattributes_values", 0)
-            Me.GumballAttributes(0) = att0.GetInt32("GhAtt_Translate", 0)
-            Me.GumballAttributes(1) = att0.GetInt32("GhAtt_PlanarTranslate", 1)
-            Me.GumballAttributes(2) = att0.GetInt32("GhAtt_FreeTranslate", 2)
-            Me.GumballAttributes(3) = att0.GetInt32("GhAtt_Rotate", 3)
-            Me.GumballAttributes(4) = att0.GetInt32("GhAtt_Scale", 4)
-            Me.GumballAttributes(5) = att0.GetInt32("GhAtt_Radius", 5)
-            Me.GumballAttributes(6) = att0.GetInt32("GhAtt_ArrowHead", 6)
-            Me.GumballAttributes(7) = att0.GetInt32("GhAtt_Thickness", 7)
-            Me.GumballAttributes(8) = att0.GetInt32("GhAtt_PlaneSize", 8)
-            Me.GumballAttributes(9) = att0.GetInt32("GhAtt_PlaneDistance", 9)
-
-            Dim att1 As GH_IO.Serialization.GH_Chunk = att.FindChunk("gumballattributes_modes", 1)
-            Me.ModeValue(0) = att1.GetInt32("valmode", 0)
-            Me.ModeValue(1) = att1.GetInt32("attmode", 1)
-            Me.ModeValue(2) = att1.GetBoolean("aligntogeometry", 2)
-
-        Catch ex As Exception
-            Rhino.RhinoApp.WriteLine("READ_COMP_Attributes; " & ex.ToString())
-        End Try
-
-        If (gb IsNot Nothing) Then
-            MyGumball = New GhGumball(gb, Me)
-            MyGumball.ChangeAppearance()
+        If (MyGumball Is Nothing) Then
+            MyGumball = New GhGumball(reader, Me)
+        Else
+            MyGumball.HideGumballs()
+            MyGumball.GumballReader(reader)
         End If
 
         Return MyBase.Read(reader)
@@ -521,19 +530,22 @@ Public Class GumballCompAtt
 End Class
 
 Public Class GhGumball
+    Inherits Rhino.UI.MouseCallback
+    Implements GH_ISerializable
+
     Public Geometry As GeometryBase()
     Public Xform As Grasshopper.Kernel.Types.GH_Transform()
+
     Public Conduits As Rhino.UI.Gumball.GumballDisplayConduit()
     Private Gumballs As Rhino.UI.Gumball.GumballObject()
     Private Appearances As Rhino.UI.Gumball.GumballAppearanceSettings()
-    Private MyCallBack As CustomCallBack
+    Private MyCustomAppearance As Integer() = New Integer(9) {1, 1, 2, 1, 1, 50, 5, 2, 15, 35}
+
     Public Count As Integer
     Public Component As GumballComp
-    Private GeometrytoAlign As GeometryBase
+    Public GeometrytoAlign As GeometryBase
 
-    Sub New()
-    End Sub
-
+#Region "New/Show/Hide/Dispose"
     Sub New(Geo As GeometryBase(), comp As GumballComp)
         Component = comp
         Geometry = Geo
@@ -542,84 +554,66 @@ Public Class GhGumball
         Conduits = New Rhino.UI.Gumball.GumballDisplayConduit(Count - 1) {}
         Gumballs = New Rhino.UI.Gumball.GumballObject(Count - 1) {}
         Appearances = New Rhino.UI.Gumball.GumballAppearanceSettings(Count - 1) {}
-        MyCallBack = New CustomCallBack(Me)
 
         For i As Int32 = 0 To Count - 1
             Xform(i) = New Grasshopper.Kernel.Types.GH_Transform()
 
-            'Gumball appearance.
+            'Appearance.
             Dim app As New Rhino.UI.Gumball.GumballAppearanceSettings
             app.MenuEnabled = False
-            If (comp Is Nothing) Then
-                app.Radius = 50
+
+            'Translate.
+            app.TranslateXEnabled = MyCustomAppearance(0)
+            app.TranslateYEnabled = MyCustomAppearance(0)
+            app.TranslateZEnabled = MyCustomAppearance(0)
+            'Free translate.
+            If (MyCustomAppearance(2)) Then
+                app.FreeTranslate = 2
             Else
-                'Translate.
-                If Me.Component.GumballAttributes(0) Then
-                    app.TranslateXEnabled = True
-                    app.TranslateYEnabled = True
-                    app.TranslateZEnabled = True
-                Else
-                    app.TranslateXEnabled = False
-                    app.TranslateYEnabled = False
-                    app.TranslateZEnabled = False
-                End If
-                'Free translate.
-                If (Me.Component.GumballAttributes(2)) Then
-                    app.FreeTranslate = 2
-                Else
-                    app.FreeTranslate = 0
-                End If
-                'Rotate.
-                If Me.Component.GumballAttributes(3) Then
-                    app.RotateXEnabled = True
-                    app.RotateYEnabled = True
-                    app.RotateZEnabled = True
-                Else
-                    app.RotateXEnabled = False
-                    app.RotateYEnabled = False
-                    app.RotateZEnabled = False
-                End If
-                'Scale.
-                If Me.Component.GumballAttributes(4) Then
-                    app.ScaleXEnabled = True
-                    app.ScaleYEnabled = True
-                    app.ScaleZEnabled = True
-                Else
-                    app.ScaleXEnabled = False
-                    app.ScaleYEnabled = False
-                    app.ScaleZEnabled = False
-                End If
-                'Radius.
-                app.Radius = Me.Component.GumballAttributes(5)
-                'Head.
-                app.ArrowHeadLength = Me.Component.GumballAttributes(6) * 2
-                app.ArrowHeadWidth = Me.Component.GumballAttributes(6)
-                'Thickness.
-                app.AxisThickness = Me.Component.GumballAttributes(7)
-                app.ArcThickness = Me.Component.GumballAttributes(7)
-                'Planar translate.
-                If Me.Component.GumballAttributes(1) Then
-                    app.TranslateXYEnabled = True
-                    app.TranslateYZEnabled = True
-                    app.TranslateZXEnabled = True
-                    'Plane size.
-                    app.PlanarTranslationGripSize = Me.Component.GumballAttributes(8)
-                    'Plane distance.
-                    app.PlanarTranslationGripCorner = Me.Component.GumballAttributes(9)
-                Else
-                    app.TranslateXYEnabled = False
-                    app.TranslateYZEnabled = False
-                    app.TranslateZXEnabled = False
-                    'Plane size.
-                    app.PlanarTranslationGripSize = 0
-                End If
+                app.FreeTranslate = 0
             End If
+            'Rotate.
+            app.RotateXEnabled = MyCustomAppearance(3)
+            app.RotateYEnabled = MyCustomAppearance(3)
+            app.RotateZEnabled = MyCustomAppearance(3)
+            'Scale.
+            app.ScaleXEnabled = MyCustomAppearance(4)
+            app.ScaleYEnabled = MyCustomAppearance(4)
+            app.ScaleZEnabled = MyCustomAppearance(4)
+            'Radius.
+            app.Radius = MyCustomAppearance(5)
+            'Head.
+            app.ArrowHeadLength = MyCustomAppearance(6) * 2
+            app.ArrowHeadWidth = MyCustomAppearance(6)
+            'Thickness.
+            app.AxisThickness = MyCustomAppearance(7)
+            app.ArcThickness = MyCustomAppearance(7)
+            'Planar translate.
+            If MyCustomAppearance(1) Then
+                app.TranslateXYEnabled = True
+                app.TranslateYZEnabled = True
+                app.TranslateZXEnabled = True
+                'Plane size.
+                app.PlanarTranslationGripSize = MyCustomAppearance(8)
+                'Plane distance.
+                app.PlanarTranslationGripCorner = MyCustomAppearance(9)
+            Else
+                app.TranslateXYEnabled = False
+                app.TranslateYZEnabled = False
+                app.TranslateZXEnabled = False
+                'Plane size.
+                app.PlanarTranslationGripSize = 0
+                'Plane distance.
+                app.PlanarTranslationGripCorner = 0
+            End If
+
             If (Geometry(i).ObjectType = Rhino.DocObjects.ObjectType.Point) Then
                 app.ScaleXEnabled = False
                 app.ScaleYEnabled = False
                 app.ScaleZEnabled = False
             End If
-            Me.Appearances(i) = app
+
+            Appearances(i) = app
 
             'Gumball object.
             Dim GumBall As New Rhino.UI.Gumball.GumballObject
@@ -642,25 +636,162 @@ Public Class GhGumball
 
     End Sub
 
-    Sub New(Other As GhGumball, comp As GumballComp)
-        Geometry = Other.Geometry
-        Xform = Other.Xform
-        Conduits = Other.Conduits
-        Gumballs = Other.Gumballs
-        Appearances = Other.Appearances
-        Count = Other.Geometry.Count
-        MyCallBack = New CustomCallBack(Me)
-        Component = comp
-        For i As Int32 = 0 To Count - 1
-            Conduits(i).SetBaseGumball(Other.Gumballs(i), Other.Appearances(i))
-        Next
-    End Sub
+    Sub New(Reader As GH_IO.Serialization.GH_IReader, comp As GumballComp)
 
+        If Not (Reader.ChunkExists("gbroot")) Then Exit Sub
+
+        Try
+            Dim i As New Integer
+
+            'Root.
+            Dim root As GH_IReader = Reader.FindChunk("gbroot")
+
+            'Data.
+            Dim data As GH_IReader = root.FindChunk("gbdata", 0)
+
+            'Count.
+            Dim countgeo As GH_IReader = data.FindChunk("countgeo", 0)
+            Count = countgeo.GetInt32("count", 0)
+
+            'Geomtry.
+            Geometry = New GeometryBase(Count - 1) {}
+            Dim g As GH_IO.Serialization.GH_IReader = data.FindChunk("geometry", 1)
+            For i = 0 To Count - 1
+                Dim bytes As Byte() = g.GetByteArray("geo", i)
+                Geometry(i) = GH_Convert.ByteArrayToCommonObject(Of GeometryBase)(bytes)
+            Next
+
+            'Transform.
+            Xform = New Types.GH_Transform(Count - 1) {}
+            Dim xf As GH_IO.Serialization.GH_IReader = data.FindChunk("transform", 2)
+            For i = 0 To Count - 1
+                Dim t As GH_IO.Serialization.GH_IReader = xf.FindChunk("gh_transform", i)
+                Dim ghxform As New Types.GH_Transform()
+                ghxform.Read(t)
+                Xform(i) = ghxform
+            Next
+
+            'Gumball.
+            Gumballs = New Rhino.UI.Gumball.GumballObject(Count - 1) {}
+            Dim go As GH_IO.Serialization.GH_IReader = data.FindChunk("gumball", 3)
+            For i = 0 To Count - 1
+                Dim gb As New Rhino.UI.Gumball.GumballObject
+                Dim frame As New Rhino.UI.Gumball.GumballFrame
+                Dim pln As GH_IO.Types.GH_Plane = go.GetPlane("frameplane", i)
+                frame.Plane = New Plane(New Point3d(pln.Origin.x, pln.Origin.y, pln.Origin.z), New Vector3d(pln.XAxis.x, pln.XAxis.y, pln.XAxis.z), New Vector3d(pln.YAxis.x, pln.YAxis.y, pln.YAxis.z))
+                Dim scd As GH_IO.Types.GH_Point3D = go.GetPoint3D("scalegripdistance", i)
+                frame.ScaleGripDistance = New Vector3d(scd.x, scd.y, scd.z)
+                gb.Frame = frame
+                Gumballs(i) = gb
+            Next
+
+            'Attributes.
+            Dim att As GH_IReader = root.FindChunk("gbattributes", 1)
+
+            'Attributes_values
+            Dim att0 As GH_IO.Serialization.GH_Chunk = att.FindChunk("gumballattributes_values", 0)
+
+            MyCustomAppearance(0) = att0.GetInt32("GbAtt_Translate", 0)
+            MyCustomAppearance(1) = att0.GetInt32("GbAtt_PlanarTranslate", 1)
+            MyCustomAppearance(2) = att0.GetInt32("GbAtt_FreeTranslate", 2)
+            MyCustomAppearance(3) = att0.GetInt32("GbAtt_Rotate", 3)
+            MyCustomAppearance(4) = att0.GetInt32("GbAtt_Scale", 4)
+            MyCustomAppearance(5) = att0.GetInt32("GbAtt_Radius", 5)
+            MyCustomAppearance(6) = att0.GetInt32("GbAtt_ArrowHead", 6)
+            MyCustomAppearance(7) = att0.GetInt32("GbAtt_Thickness", 7)
+            MyCustomAppearance(8) = att0.GetInt32("GbAtt_PlaneSize", 8)
+            MyCustomAppearance(9) = att0.GetInt32("GbAtt_PlaneDistance", 9)
+
+
+            'Attributes_modes
+            Dim att1 As GH_IO.Serialization.GH_Chunk = att.FindChunk("gumballattributes_modes", 1)
+            comp.ModeValue(0) = att1.GetInt32("valmode", 0)
+            comp.ModeValue(1) = att1.GetInt32("attmode", 1)
+            comp.ModeValue(2) = att1.GetBoolean("aligntogeometry", 2)
+
+            'End reader.
+
+            Component = comp
+            Conduits = New Rhino.UI.Gumball.GumballDisplayConduit(Count - 1) {}
+            Appearances = New Rhino.UI.Gumball.GumballAppearanceSettings(Count - 1) {}
+            'MyCallBack = New CustomCallBack(Me)
+
+            For i = 0 To Count - 1
+
+                'Appearance.
+                Dim app As New Rhino.UI.Gumball.GumballAppearanceSettings
+                app.MenuEnabled = False
+
+                'Translate.
+                app.TranslateXEnabled = MyCustomAppearance(0)
+                app.TranslateYEnabled = MyCustomAppearance(0)
+                app.TranslateZEnabled = MyCustomAppearance(0)
+                'Free translate.
+                If (MyCustomAppearance(2)) Then
+                    app.FreeTranslate = 2
+                Else
+                    app.FreeTranslate = 0
+                End If
+                'Rotate.
+                app.RotateXEnabled = MyCustomAppearance(3)
+                app.RotateYEnabled = MyCustomAppearance(3)
+                app.RotateZEnabled = MyCustomAppearance(3)
+                'Scale.
+                app.ScaleXEnabled = MyCustomAppearance(4)
+                app.ScaleYEnabled = MyCustomAppearance(4)
+                app.ScaleZEnabled = MyCustomAppearance(4)
+                'Radius.
+                app.Radius = MyCustomAppearance(5)
+                'Head.
+                app.ArrowHeadLength = MyCustomAppearance(6) * 2
+                app.ArrowHeadWidth = MyCustomAppearance(6)
+                'Thickness.
+                app.AxisThickness = MyCustomAppearance(7)
+                app.ArcThickness = MyCustomAppearance(7)
+                'Planar translate.
+                If MyCustomAppearance(1) Then
+                    app.TranslateXYEnabled = True
+                    app.TranslateYZEnabled = True
+                    app.TranslateZXEnabled = True
+                    'Plane size.
+                    app.PlanarTranslationGripSize = MyCustomAppearance(8)
+                    'Plane distance.
+                    app.PlanarTranslationGripCorner = MyCustomAppearance(9)
+                Else
+                    app.TranslateXYEnabled = False
+                    app.TranslateYZEnabled = False
+                    app.TranslateZXEnabled = False
+                    'Plane size.
+                    app.PlanarTranslationGripSize = 0
+                    'Plane distance.
+                    app.PlanarTranslationGripCorner = 0
+                End If
+
+                If (Geometry(i).ObjectType = Rhino.DocObjects.ObjectType.Point) Then
+                    app.ScaleXEnabled = False
+                    app.ScaleYEnabled = False
+                    app.ScaleZEnabled = False
+                End If
+
+                Appearances(i) = app
+
+                'Display conduit.
+                Dim conduit As New Rhino.UI.Gumball.GumballDisplayConduit
+                conduit.SetBaseGumball(Gumballs(i), app)
+                Conduits(i) = conduit
+            Next
+
+        Catch ex As Exception
+            Rhino.RhinoApp.WriteLine("NEW_GB; " & ex.ToString())
+        End Try
+    End Sub
+    '
+    '
     Public Sub ShowGumballs()
         For i As Int32 = 0 To Count - 1
             Conduits(i).Enabled = True
         Next
-        MyCallBack.Enabled = True
+        Me.Enabled = True
         Rhino.RhinoDoc.ActiveDoc.Views.Redraw()
     End Sub
 
@@ -668,7 +799,7 @@ Public Class GhGumball
         For i As Int32 = 0 To Count - 1
             Conduits(i).Enabled = False
         Next
-        MyCallBack.Enabled = False
+        Me.Enabled = False
         Rhino.RhinoDoc.ActiveDoc.Views.Redraw()
     End Sub
 
@@ -678,25 +809,40 @@ Public Class GhGumball
             Conduits(i).Dispose()
             Gumballs(i).Dispose()
         Next
-        MyCallBack.Enabled = False
+        Me.Enabled = False
     End Sub
+#End Region
+
+#Region "Gumball Transform"
 
     Public Sub UpdateGumball(ByVal Index As Integer)
+
         If Not (Conduits(Index).InRelocate) Then
             Dim xform As Transform = Conduits(Index).TotalTransform
             Conduits(Index).PreTransform = xform
         End If
         Dim gbframe As Rhino.UI.Gumball.GumballFrame = Conduits(Index).Gumball.Frame
         Dim baseFrame As Rhino.UI.Gumball.GumballFrame = Gumballs(Index).Frame
+
+        If (Rhino.ApplicationSettings.ModelAidSettings.GridSnap) Then
+            If (Conduits(Index).PickResult.Mode = Rhino.UI.Gumball.GumballMode.TranslateFree Or Conduits(Index).PickResult.Mode = Rhino.UI.Gumball.GumballMode.TranslateX Or
+                    Conduits(Index).PickResult.Mode = Rhino.UI.Gumball.GumballMode.TranslateY Or Conduits(Index).PickResult.Mode = Rhino.UI.Gumball.GumballMode.TranslateZ Or
+                    Conduits(Index).PickResult.Mode = Rhino.UI.Gumball.GumballMode.TranslateXY Or Conduits(Index).PickResult.Mode = Rhino.UI.Gumball.GumballMode.TranslateYZ Or
+                    Conduits(Index).PickResult.Mode = Rhino.UI.Gumball.GumballMode.TranslateZX) Then
+                Dim pln As Plane = gbframe.Plane
+                pln.Origin = New Point3d(CInt(pln.Origin.X), CInt(pln.Origin.Y), CInt(pln.Origin.Z))
+                gbframe.Plane = pln
+            End If
+        End If
         baseFrame.Plane = gbframe.Plane
         baseFrame.ScaleGripDistance = gbframe.ScaleGripDistance
         Gumballs(Index).Frame = baseFrame
         Conduits(Index).SetBaseGumball(Gumballs(Index), Appearances(Index))
         Conduits(Index).Enabled = True
 
-        Rhino.RhinoDoc.ActiveDoc.Views.Redraw()
-
         If (Me.Component.ModeValue(2)) AndAlso (GeometrytoAlign IsNot Nothing) Then AlignToGeometry(GeometrytoAlign)
+
+        Rhino.RhinoDoc.ActiveDoc.Views.Redraw()
 
     End Sub
 
@@ -706,100 +852,67 @@ Public Class GhGumball
         Dim baseFrame As Rhino.UI.Gumball.GumballFrame = Gumballs(i).Frame
         Dim pln As Plane = gbframe.Plane
         pln.Transform(xform)
+
+        If (Rhino.ApplicationSettings.ModelAidSettings.GridSnap) Then
+            If (Conduits(Index).PickResult.Mode = Rhino.UI.Gumball.GumballMode.TranslateFree Or Conduits(Index).PickResult.Mode = Rhino.UI.Gumball.GumballMode.TranslateX Or
+                    Conduits(Index).PickResult.Mode = Rhino.UI.Gumball.GumballMode.TranslateY Or Conduits(Index).PickResult.Mode = Rhino.UI.Gumball.GumballMode.TranslateZ Or
+                    Conduits(Index).PickResult.Mode = Rhino.UI.Gumball.GumballMode.TranslateXY Or Conduits(Index).PickResult.Mode = Rhino.UI.Gumball.GumballMode.TranslateYZ Or
+                    Conduits(Index).PickResult.Mode = Rhino.UI.Gumball.GumballMode.TranslateZX) Then
+
+                pln.Origin = New Point3d(CInt(pln.Origin.X), CInt(pln.Origin.Y), CInt(pln.Origin.Z))
+                gbframe.Plane = pln
+            End If
+        End If
+
         baseFrame.Plane = pln
         baseFrame.ScaleGripDistance = gbframe.ScaleGripDistance
         Gumballs(i).Frame = baseFrame
         Conduits(i).SetBaseGumball(Gumballs(i), Appearances(i))
         Conduits(i).Enabled = True
 
-        Rhino.RhinoDoc.ActiveDoc.Views.Redraw()
-
         If (Me.Component.ModeValue(2)) AndAlso (GeometrytoAlign IsNot Nothing) Then AlignToGeometry(GeometrytoAlign)
+
 
     End Sub
 
-    Public Sub ChangeAppearance()
-
+    Public Sub RestoreGumball()
         For i As Int32 = 0 To Count - 1
-            Dim app As Rhino.UI.Gumball.GumballAppearanceSettings = Appearances(i)
-
-            'Translate.
-            If Me.Component.GumballAttributes(0) Then
-                app.TranslateXEnabled = True
-                app.TranslateYEnabled = True
-                app.TranslateZEnabled = True
-            Else
-                app.TranslateXEnabled = False
-                app.TranslateYEnabled = False
-                app.TranslateZEnabled = False
-            End If
-            'Free translate.
-            If (Me.Component.GumballAttributes(2)) Then
-                app.FreeTranslate = 2
-            Else
-                app.FreeTranslate = 0
-            End If
-            'Rotate.
-            If Me.Component.GumballAttributes(3) Then
-                app.RotateXEnabled = True
-                app.RotateYEnabled = True
-                app.RotateZEnabled = True
-            Else
-                app.RotateXEnabled = False
-                app.RotateYEnabled = False
-                app.RotateZEnabled = False
-            End If
-            'Scale.
-            If Me.Component.GumballAttributes(4) Then
-                app.ScaleXEnabled = True
-                app.ScaleYEnabled = True
-                app.ScaleZEnabled = True
-            Else
-                app.ScaleXEnabled = False
-                app.ScaleYEnabled = False
-                app.ScaleZEnabled = False
-            End If
-            'Radius.
-            app.Radius = Me.Component.GumballAttributes(5)
-            'Head.
-            app.ArrowHeadLength = Me.Component.GumballAttributes(6) * 2
-            app.ArrowHeadWidth = Me.Component.GumballAttributes(6)
-            'Thickness.
-            app.AxisThickness = Me.Component.GumballAttributes(7)
-            app.ArcThickness = Me.Component.GumballAttributes(7)
-            'Planar translate.
-            If Me.Component.GumballAttributes(1) Then
-                app.TranslateXYEnabled = True
-                app.TranslateYZEnabled = True
-                app.TranslateZXEnabled = True
-                'Plane size.
-                app.PlanarTranslationGripSize = Me.Component.GumballAttributes(8)
-                'Plane distance.
-                app.PlanarTranslationGripCorner = Me.Component.GumballAttributes(9)
-            Else
-                app.TranslateXYEnabled = False
-                app.TranslateYZEnabled = False
-                app.TranslateZXEnabled = False
-                'Plane size.
-                app.PlanarTranslationGripSize = 0
-            End If
-
-
-            If (Geometry(i).ObjectType = Rhino.DocObjects.ObjectType.Point) Then
-                app.ScaleXEnabled = False
-                app.ScaleYEnabled = False
-                app.ScaleZEnabled = False
-            End If
-
-            Conduits(i).Enabled = False
-            Appearances(i) = app
+            Dim gbframe As Rhino.UI.Gumball.GumballFrame = Conduits(i).Gumball.Frame
+            Dim baseFrame As Rhino.UI.Gumball.GumballFrame = Gumballs(i).Frame
+            gbframe.Plane = New Plane(gbframe.Plane.Origin, Vector3d.XAxis, Vector3d.YAxis)
+            baseFrame.Plane = gbframe.Plane
+            Gumballs(i).Frame = baseFrame
             Conduits(i).SetBaseGumball(Gumballs(i), Appearances(i))
             Conduits(i).Enabled = True
         Next
         Rhino.RhinoDoc.ActiveDoc.Views.Redraw()
     End Sub
 
+    Public Sub UpdateGumballFromTextBox(ByVal index As Integer, ByVal Transform As Transform)
+
+        Conduits(index).PreTransform = Transform
+
+        Dim gbframe As Rhino.UI.Gumball.GumballFrame = Conduits(index).Gumball.Frame
+        Dim baseFrame As Rhino.UI.Gumball.GumballFrame = Gumballs(index).Frame
+
+        Dim pln As Plane = gbframe.Plane
+        pln.Transform(Transform)
+        gbframe.Plane = pln
+        baseFrame.Plane = gbframe.Plane
+
+        baseFrame.ScaleGripDistance = gbframe.ScaleGripDistance
+
+        Gumballs(index).Frame = baseFrame
+        Conduits(index).SetBaseGumball(Gumballs(index), Appearances(index))
+        Conduits(index).Enabled = True
+
+        If (Me.Component.ModeValue(2)) AndAlso (GeometrytoAlign IsNot Nothing) Then AlignToGeometry(GeometrytoAlign)
+
+        Rhino.RhinoDoc.ActiveDoc.Views.Redraw()
+    End Sub
+
     Public Sub AlignToGeometry(Geo As GeometryBase)
+
         GeometrytoAlign = Geo
 
         For i As Int32 = 0 To Count - 1
@@ -848,6 +961,7 @@ Public Class GhGumball
             End If
 
             baseFrame.Plane = gbframe.Plane
+            baseFrame.ScaleGripDistance = gbframe.ScaleGripDistance
             Gumballs(i).Frame = baseFrame
             Conduits(i).SetBaseGumball(Gumballs(i), Appearances(i))
             Conduits(i).Enabled = True
@@ -855,163 +969,25 @@ Public Class GhGumball
         Next
         Rhino.RhinoDoc.ActiveDoc.Views.Redraw()
     End Sub
-
-    Public Sub RestoreGumball()
-        For i As Int32 = 0 To Count - 1
-            Dim gbframe As Rhino.UI.Gumball.GumballFrame = Conduits(i).Gumball.Frame
-            Dim baseFrame As Rhino.UI.Gumball.GumballFrame = Gumballs(i).Frame
-            gbframe.Plane = New Plane(gbframe.Plane.Origin, Vector3d.XAxis, Vector3d.YAxis)
-            baseFrame.Plane = gbframe.Plane
-            Gumballs(i).Frame = baseFrame
-            Conduits(i).SetBaseGumball(Gumballs(i), Appearances(i))
-            Conduits(i).Enabled = True
-        Next
-        Rhino.RhinoDoc.ActiveDoc.Views.Redraw()
-    End Sub
-
-#Region "Write/Read"
-    Private gbd As String = "gumballdata"
-    Private gge As String = "gumballgeometry"
-    Private gxf As String = "gumballtransform"
-    Private ggo As String = "gumballobject"
-    Private gba As String = "gumballattributes"
-
-    Public Function GumballWriter(ByVal writer As GH_IO.Serialization.GH_IWriter) As Boolean
-
-        Try
-
-            Dim i As New Integer
-            writer.RemoveChunk(gbd)
-            'Gumball writter.
-            Dim alldata As GH_IO.Serialization.GH_IWriter = writer.CreateChunk(gbd)
-            'Count.
-            Dim c As GH_IO.Serialization.GH_IWriter = alldata.CreateChunk("count")
-            c.SetInt32("size", 0, Me.Count)
-            'Geometry.
-            Dim geo As GH_IO.Serialization.GH_IWriter = alldata.CreateChunk(gge)
-            For i = 0 To Count - 1
-                Dim bytes As Byte() = GH_Convert.CommonObjectToByteArray(Geometry(i))
-                geo.SetByteArray("geo", i, bytes)
-            Next
-            'Transform.
-            Dim xf As GH_IO.Serialization.GH_IWriter = alldata.CreateChunk(gxf)
-            For i = 0 To Count - 1
-                Dim t As GH_IO.Serialization.GH_IWriter = xf.CreateChunk("xform", i)
-                Xform(i).Write(t)
-            Next
-            'Gumball.
-            Dim obj As GH_IO.Serialization.GH_IWriter = alldata.CreateChunk(ggo)
-            For i = 0 To Count - 1
-                Dim frame As Plane = Gumballs(i).Frame.Plane
-                Dim pln As GH_IO.Types.GH_Plane
-                pln.Origin = New GH_IO.Types.GH_Point3D(frame.Origin.X, frame.Origin.Y, frame.Origin.Z)
-                pln.XAxis = New GH_IO.Types.GH_Point3D(frame.XAxis.X, frame.XAxis.Y, frame.XAxis.Z)
-                pln.YAxis = New GH_IO.Types.GH_Point3D(frame.YAxis.X, frame.YAxis.Y, frame.YAxis.Z)
-                obj.SetPlane("pln", i, pln)
-                Dim scd As Vector3d = Gumballs(i).Frame.ScaleGripDistance
-                Dim vec As New GH_IO.Types.GH_Point3D(scd.X, scd.Y, scd.Z)
-                obj.SetPoint3D("scd", i, vec)
-            Next
-            'Attribute.
-            writer.RemoveChunk("gumballattributes")
-            Dim att As GH_IO.Serialization.GH_IWriter = writer.CreateChunk("gumballattributes")
-            Dim att0 As GH_IO.Serialization.GH_IWriter = att.CreateChunk("gumballattributes_values", 0)
-            att0.SetInt32("GhAtt_Translate", 0, Me.Component.GumballAttributes(0))
-            att0.SetInt32("GhAtt_PlanarTranslate", 1, Me.Component.GumballAttributes(1))
-            att0.SetInt32("GhAtt_FreeTranslate", 2, Me.Component.GumballAttributes(2))
-            att0.SetInt32("GhAtt_Rotate", 3, Me.Component.GumballAttributes(3))
-            att0.SetInt32("GhAtt_Scale", 4, Me.Component.GumballAttributes(4))
-            att0.SetInt32("GhAtt_Radius", 5, Me.Component.GumballAttributes(5))
-            att0.SetInt32("GhAtt_ArrowHead", 6, Me.Component.GumballAttributes(6))
-            att0.SetInt32("GhAtt_Thickness", 7, Me.Component.GumballAttributes(7))
-            att0.SetInt32("GhAtt_PlaneSize", 8, Me.Component.GumballAttributes(8))
-            att0.SetInt32("GhAtt_PlaneDistance", 9, Me.Component.GumballAttributes(9))
-
-            Dim att1 As GH_IO.Serialization.GH_IWriter = att.CreateChunk("gumballattributes_modes", 1)
-            att1.SetInt32("valmode", 0, Me.Component.ModeValue(0))
-            att1.SetInt32("attmode", 1, Me.Component.ModeValue(1))
-            att1.SetBoolean("aligntogeometry", 2, Me.Component.ModeValue(2))
-
-        Catch ex As Exception
-            Rhino.RhinoApp.WriteLine("WRITER_GB; " & ex.ToString())
-        End Try
-        Return True
-    End Function
-
-    Public Function GumballReader(ByVal reader As GH_IO.Serialization.GH_IReader) As GhGumball
-
-        If Not (reader.ChunkExists(gbd)) Then
-            Return Nothing
-            Exit Function
-        End If
-
-        Try
-            Dim i As New Integer
-            'Gumball reader.
-            Dim alldata As GH_IO.Serialization.GH_IReader = reader.FindChunk(gbd)
-            'Count.
-            Dim c As GH_IO.Serialization.GH_IReader = alldata.FindChunk("count")
-            Dim rcount As Integer = c.GetInt32("size", 0)
-            'Geometry.
-            Dim Geom As GeometryBase() = New GeometryBase(rcount - 1) {}
-            Dim g As GH_IO.Serialization.GH_IReader = alldata.FindChunk(gge)
-            For i = 0 To rcount - 1
-                Dim bytes As Byte() = g.GetByteArray("geo", i)
-                Geom(i) = GH_Convert.ByteArrayToCommonObject(Of GeometryBase)(bytes)
-            Next
-            'Transform.
-            Dim transforms As Types.GH_Transform() = New Types.GH_Transform(rcount - 1) {}
-            Dim xf As GH_IO.Serialization.GH_IReader = alldata.FindChunk(gxf)
-            For i = 0 To rcount - 1
-                Dim t As GH_IO.Serialization.GH_IReader = xf.FindChunk("xform", i)
-                Dim xform As New Types.GH_Transform()
-                xform.Read(t)
-                transforms(i) = xform
-            Next
-            'Gumball.
-            Dim gumobj As Rhino.UI.Gumball.GumballObject() = New Rhino.UI.Gumball.GumballObject(rcount - 1) {}
-            Dim go As GH_IO.Serialization.GH_IReader = alldata.FindChunk(ggo)
-            For i = 0 To rcount - 1
-                Dim gb As New Rhino.UI.Gumball.GumballObject
-                Dim frame As New Rhino.UI.Gumball.GumballFrame
-                Dim pln As GH_IO.Types.GH_Plane = go.GetPlane("pln", i)
-                frame.Plane = New Plane(New Point3d(pln.Origin.x, pln.Origin.y, pln.Origin.z), New Vector3d(pln.XAxis.x, pln.XAxis.y, pln.XAxis.z), New Vector3d(pln.YAxis.x, pln.YAxis.y, pln.YAxis.z))
-                Dim scd As GH_IO.Types.GH_Point3D = go.GetPoint3D("scd", i)
-                frame.ScaleGripDistance = New Vector3d(scd.x, scd.y, scd.z)
-                gb.Frame = frame
-                gumobj(i) = gb
-            Next
-
-            Dim readergumball As New GhGumball(Geom, Me.Component)
-            readergumball.Xform = transforms
-            readergumball.Gumballs = gumobj
-            Return readergumball
-            Exit Function
-        Catch ex As Exception
-            Rhino.RhinoApp.WriteLine("READER_GB; " & ex.ToString())
-        End Try
-        Return Nothing
-    End Function
 #End Region
 
-End Class
-
-Public Class CustomCallBack
-    Inherits Rhino.UI.MouseCallback
-
-    Private G As GhGumball
-    Private Index As Integer
-    Private Undo As Boolean
-
-    Sub New(GHG As GhGumball)
-        G = GHG
-        Index = -1
-        Undo = False
-    End Sub
+#Region "MouseCallback"
+    Private Index As Integer = -1
+    Private SaveUndo As Boolean = False
+    Private TextBox As FormTextBox = Nothing
+    Public ValueString As String = String.Empty
+    Private Keyboard As New Microsoft.VisualBasic.Devices.Keyboard
 
     Protected Overrides Sub OnMouseDown(e As Rhino.UI.MouseCallbackEventArgs)
         MyBase.OnMouseDown(e)
         Index = -1
+
+        If (TextBox IsNot Nothing) Then
+            TextBox.Dispose()
+            TextBox.Close()
+            TextBox = Nothing
+        End If
+
         If (e.Button <> MouseButtons.Left) Then Exit Sub
 
         Dim Pick As New Rhino.Input.Custom.PickContext
@@ -1023,11 +999,14 @@ Public Class CustomCallBack
         Pick.PickLine = pickline
         Pick.UpdateClippingPlanes()
 
-        For i As Int32 = 0 To G.Count - 1
-            If (G.Conduits(i).PickGumball(Pick, Nothing)) Then
+        For i As Int32 = 0 To Count - 1
+            If (Conduits(i).PickGumball(Pick, Nothing)) Then
                 Index = i
-                Undo = True
+                SaveUndo = True
                 e.Cancel = True
+                If (Keyboard.CtrlKeyDown) Then
+                    TextBox = New FormTextBox(Rhino.RhinoDoc.ActiveDoc.Views.ActiveView.ClientToScreen(e.ViewportPoint), Me)
+                End If
                 Exit For
             End If
         Next
@@ -1037,16 +1016,15 @@ Public Class CustomCallBack
     Protected Overrides Sub OnMouseMove(e As Rhino.UI.MouseCallbackEventArgs)
         MyBase.OnMouseMove(e)
 
-        If (Index = -1) Or (Index >= G.Count) Then Exit Sub
-
-        If (Undo) Then
-            G.Component.RecordUndoEvent("gumballdata")
-            Undo = False
+        If (TextBox IsNot Nothing) Then
+            e.Cancel = True
+            Exit Sub
         End If
 
-        Dim conduit As Rhino.UI.Gumball.GumballDisplayConduit = G.Conduits(Index)
-        If (conduit.PickResult.Mode = Rhino.UI.Gumball.GumballMode.None) Then Exit Sub
-        conduit.CheckShiftAndControlKeys()
+        If (Index = -1) Or (Index >= Count) Then Exit Sub
+
+        If (Conduits(Index).PickResult.Mode = Rhino.UI.Gumball.GumballMode.None) Then Exit Sub
+        'Conduits(Index).CheckShiftAndControlKeys()
         Dim wordline As Line = Nothing
         If Not (e.View.MainViewport.GetFrustumLine(CDbl(e.ViewportPoint.X), CDbl(e.ViewportPoint.Y), wordline)) Then
             wordline = Line.Unset
@@ -1055,54 +1033,652 @@ Public Class CustomCallBack
         Dim lp As Double = Nothing
         Rhino.Geometry.Intersect.Intersection.LinePlane(wordline, cplane, lp)
         Dim dragPoint As Point3d = wordline.PointAt(lp)
-        If Not (conduit.UpdateGumball(dragPoint, wordline)) Then Exit Sub
+        If (Rhino.ApplicationSettings.ModelAidSettings.GridSnap) Then
+            If (Conduits(Index).PickResult.Mode = Rhino.UI.Gumball.GumballMode.TranslateFree Or Conduits(Index).PickResult.Mode = Rhino.UI.Gumball.GumballMode.TranslateX Or
+                    Conduits(Index).PickResult.Mode = Rhino.UI.Gumball.GumballMode.TranslateY Or Conduits(Index).PickResult.Mode = Rhino.UI.Gumball.GumballMode.TranslateZ Or
+                    Conduits(Index).PickResult.Mode = Rhino.UI.Gumball.GumballMode.TranslateXY Or Conduits(Index).PickResult.Mode = Rhino.UI.Gumball.GumballMode.TranslateYZ Or
+                    Conduits(Index).PickResult.Mode = Rhino.UI.Gumball.GumballMode.TranslateZX) Then
+                Dim snap As Point3d = New Point3d(CInt(dragPoint.X), CInt(dragPoint.Y), CInt(dragPoint.Z))
+                wordline.Transform(Transform.Translation(New Vector3d(snap - dragPoint)))
+                dragPoint = snap
+            End If
+        End If
+        If Not (Conduits(Index).UpdateGumball(dragPoint, wordline)) Then Exit Sub
         Rhino.RhinoDoc.ActiveDoc.Views.Redraw()
         e.Cancel = True
     End Sub
 
     Protected Overrides Sub OnMouseUp(e As Rhino.UI.MouseCallbackEventArgs)
         MyBase.OnMouseUp(e)
-        If (Index = -1) Or (Index >= G.Count) Then Exit Sub
 
-        Dim xform As Transform = G.Conduits(Index).GumballTransform
+        If (Index = -1) Or (Index >= Count) Or (ValueString <> String.Empty) Then Exit Sub
 
-        If (xform <> Transform.Identity) Then
+        If (SaveUndo) Then
+            Component.RecordUndoEvent("Gumball Drag", New GbUndo(Me))
+            SaveUndo = False
+        End If
 
-            If (G.Component.ModeValue(0) = 2) Then
-                G.UpdateGumball(Index)
-            Else
+        Dim gbxform As Transform = Conduits(Index).GumballTransform
 
-                Dim ghXform As New Grasshopper.Kernel.Types.GH_Transform(New Grasshopper.Kernel.Types.Transforms.Generic(xform))
+        If (gbxform <> Transform.Identity) Then
 
-                If (G.Component.ModeValue(0) = 1) Then
+            Select Case Component.ModeValue(0)
 
-                    For i As Int32 = 0 To G.Count - 1
+                Case 0 'Normal
+                    Dim ghXform As New Grasshopper.Kernel.Types.GH_Transform(New Grasshopper.Kernel.Types.Transforms.Generic(gbxform))
+                    For Each t As Grasshopper.Kernel.Types.Transforms.ITransform In ghXform.CompoundTransforms
+                        Xform(Index).CompoundTransforms.Add(t.Duplicate())
+                    Next
+                    Xform(Index).ClearCaches()
+                    Geometry(Index).Transform(gbxform)
+                    UpdateGumball(Index)
+
+                Case 1 'Apply to all.
+                    Dim ghXform As New Grasshopper.Kernel.Types.GH_Transform(New Grasshopper.Kernel.Types.Transforms.Generic(gbxform))
+                    For i As Int32 = 0 To Count - 1
                         For Each t As Grasshopper.Kernel.Types.Transforms.ITransform In ghXform.CompoundTransforms
-                            G.Xform(i).CompoundTransforms.Add(t.Duplicate())
+                            Xform(i).CompoundTransforms.Add(t.Duplicate())
                         Next
-                        G.Xform(i).ClearCaches()
-                        G.Geometry(i).Transform(xform)
+                        Xform(i).ClearCaches()
+                        Geometry(i).Transform(gbxform)
                         If (i = Index) Then
-                            G.UpdateGumball(i)
+                            UpdateGumball(i)
                         Else
-                            G.UpdateGumball(i, xform)
+                            UpdateGumball(i, gbxform)
                         End If
                     Next
-                Else
-                    For Each t As Grasshopper.Kernel.Types.Transforms.ITransform In ghXform.CompoundTransforms
-                        G.Xform(Index).CompoundTransforms.Add(t.Duplicate())
-                    Next
-                    G.Xform(Index).ClearCaches()
-                    G.Geometry(Index).Transform(xform)
-                    G.UpdateGumball(Index)
-                End If
-            End If
-            G.Component.ExpireSolution(True)
+                    Rhino.RhinoDoc.ActiveDoc.Views.Redraw()
+
+                Case 2 'Relocate.
+                    UpdateGumball(Index)
+
+            End Select
+
+            Component.ExpireSolution(True)
         End If
         Index = -1
         e.Cancel = True
     End Sub
 
+    Public Sub TransformFromTextBox()
+
+        If (TextBox IsNot Nothing) AndAlso (ValueString IsNot String.Empty) AndAlso (Index > -1) Then
+
+            Me.Component.RecordUndoEvent("Gumball Drag", New GbUndo(Me))
+
+            Dim gbxform As Transform = Conduits(Index).GumballTransform
+
+            Dim value As New Double
+            Try
+                value = Convert.ToDouble(ValueString)
+
+            Catch ex As Exception
+                Rhino.RhinoApp.WriteLine("Invalid value. Only numerical values are allowed.")
+                Index = -1
+                ValueString = String.Empty
+                Exit Sub
+            End Try
+
+            Dim pln As Plane = Conduits(Index).Gumball.Frame.Plane
+
+            Select Case Conduits(Index).PickResult.Mode
+                Case Rhino.UI.Gumball.GumballMode.TranslateX
+                    gbxform = Transform.Translation(pln.XAxis * value)
+
+                Case Rhino.UI.Gumball.GumballMode.TranslateY
+                    gbxform = Transform.Translation(pln.YAxis * value)
+
+                Case Rhino.UI.Gumball.GumballMode.TranslateZ
+                    gbxform = Transform.Translation(pln.ZAxis * value)
+
+                Case Rhino.UI.Gumball.GumballMode.RotateX
+                    gbxform = Transform.Rotation((value * Math.PI) / 180, pln.XAxis, pln.Origin)
+
+                Case Rhino.UI.Gumball.GumballMode.RotateY
+                    gbxform = Transform.Rotation((value * Math.PI) / 180, pln.YAxis, pln.Origin)
+
+                Case Rhino.UI.Gumball.GumballMode.RotateZ
+                    gbxform = Transform.Rotation((value * Math.PI) / 180, pln.ZAxis, pln.Origin)
+
+                Case Rhino.UI.Gumball.GumballMode.ScaleX
+                    gbxform = Transform.Scale(pln, value, 1, 1)
+                    If (Component.ModeValue(0) = 1) Then 'Apply to all.
+                        For i As Int32 = 0 To Count - 1
+                            Dim frame As Rhino.UI.Gumball.GumballFrame = Conduits(i).Gumball.Frame
+                            frame.ScaleGripDistance = New Vector3d(frame.ScaleGripDistance.X * value, frame.ScaleGripDistance.Y, frame.ScaleGripDistance.Z)
+                            Gumballs(i).Frame = frame
+                            Conduits(i).SetBaseGumball(Gumballs(i), Appearances(i))
+                        Next
+                    Else
+                        Dim frame As Rhino.UI.Gumball.GumballFrame = Conduits(Index).Gumball.Frame
+                        frame.ScaleGripDistance = New Vector3d(frame.ScaleGripDistance.X * value, frame.ScaleGripDistance.Y, frame.ScaleGripDistance.Z)
+                        Gumballs(Index).Frame = frame
+                        Conduits(Index).SetBaseGumball(Gumballs(Index), Appearances(Index))
+                    End If
+
+                Case Rhino.UI.Gumball.GumballMode.ScaleY
+                    gbxform = Transform.Scale(pln, 1, value, 1)
+                    If (Component.ModeValue(0) = 1) Then 'Apply to all.
+                        For i As Int32 = 0 To Count - 1
+                            Dim frame As Rhino.UI.Gumball.GumballFrame = Conduits(i).Gumball.Frame
+                            frame.ScaleGripDistance = New Vector3d(frame.ScaleGripDistance.X, frame.ScaleGripDistance.Y * value, frame.ScaleGripDistance.Z)
+                            Gumballs(i).Frame = frame
+                            Conduits(i).SetBaseGumball(Gumballs(i), Appearances(i))
+                        Next
+                    Else
+                        Dim frame As Rhino.UI.Gumball.GumballFrame = Conduits(Index).Gumball.Frame
+                        frame.ScaleGripDistance = New Vector3d(frame.ScaleGripDistance.X, frame.ScaleGripDistance.Y * value, frame.ScaleGripDistance.Z)
+                        Gumballs(Index).Frame = frame
+                        Conduits(Index).SetBaseGumball(Gumballs(Index), Appearances(Index))
+                    End If
+
+                Case Rhino.UI.Gumball.GumballMode.ScaleZ
+                    gbxform = Transform.Scale(pln, 1, 1, value)
+                    If (Component.ModeValue(0) = 1) Then 'Apply to all.
+                        For i As Int32 = 0 To Count - 1
+                            Dim frame As Rhino.UI.Gumball.GumballFrame = Conduits(i).Gumball.Frame
+                            frame.ScaleGripDistance = New Vector3d(frame.ScaleGripDistance.X, frame.ScaleGripDistance.Y, frame.ScaleGripDistance.Z * value)
+                            Gumballs(i).Frame = frame
+                            Conduits(i).SetBaseGumball(Gumballs(i), Appearances(i))
+                        Next
+                    Else
+                        Dim frame As Rhino.UI.Gumball.GumballFrame = Conduits(Index).Gumball.Frame
+                        frame.ScaleGripDistance = New Vector3d(frame.ScaleGripDistance.X, frame.ScaleGripDistance.Y, frame.ScaleGripDistance.Z * value)
+                        Gumballs(Index).Frame = frame
+                        Conduits(Index).SetBaseGumball(Gumballs(Index), Appearances(Index))
+                    End If
+
+                Case Else
+                    Index = -1
+                    ValueString = String.Empty
+                    Exit Sub
+
+            End Select
+
+            If (gbxform <> Transform.Identity) Then
+
+                Select Case Component.ModeValue(0)
+
+                    Case 0 'Normal
+                        Dim ghXform As New Grasshopper.Kernel.Types.GH_Transform(New Grasshopper.Kernel.Types.Transforms.Generic(gbxform))
+                        For Each t As Grasshopper.Kernel.Types.Transforms.ITransform In ghXform.CompoundTransforms
+                            Xform(Index).CompoundTransforms.Add(t.Duplicate())
+                        Next
+                        Xform(Index).ClearCaches()
+                        Geometry(Index).Transform(gbxform)
+                        UpdateGumballFromTextBox(Index, gbxform)
+
+                    Case 1 'Apply to all.
+                        Dim ghXform As New Grasshopper.Kernel.Types.GH_Transform(New Grasshopper.Kernel.Types.Transforms.Generic(gbxform))
+                        For i As Int32 = 0 To Count - 1
+                            For Each t As Grasshopper.Kernel.Types.Transforms.ITransform In ghXform.CompoundTransforms
+                                Xform(i).CompoundTransforms.Add(t.Duplicate())
+                            Next
+                            Xform(i).ClearCaches()
+                            Geometry(i).Transform(gbxform)
+                            UpdateGumballFromTextBox(i, gbxform)
+                        Next
+
+                    Case 2 'Relocate.
+                        UpdateGumballFromTextBox(Index, gbxform)
+
+                End Select
+                Component.ExpireSolution(True)
+            End If
+            Index = -1
+            ValueString = String.Empty
+        End If
+    End Sub
+#End Region
+
+#Region "Appearance"
+    Public Property CustomAppearance(ByVal index As Integer) As Integer
+        Get
+            Return MyCustomAppearance(index)
+        End Get
+        Set(value As Integer)
+            MyCustomAppearance(index) = value
+            Select Case index
+                Case 0
+                    For i As Integer = 0 To Count - 1
+                        Appearances(i).TranslateXEnabled = value
+                        Appearances(i).TranslateYEnabled = value
+                        Appearances(i).TranslateZEnabled = value
+                    Next
+                Case 1
+                    For i As Integer = 0 To Count - 1
+                        Appearances(i).TranslateXYEnabled = value
+                        Appearances(i).TranslateYZEnabled = value
+                        Appearances(i).TranslateZXEnabled = value
+                    Next
+                Case 2
+                    For i As Integer = 0 To Count - 1
+                        Appearances(i).FreeTranslate = If(value, 2, 0)
+                    Next
+                Case 3
+                    For i As Integer = 0 To Count - 1
+                        Appearances(i).RotateXEnabled = value
+                        Appearances(i).RotateYEnabled = value
+                        Appearances(i).RotateZEnabled = value
+                    Next
+                Case 4
+                    For i As Integer = 0 To Count - 1
+                        Appearances(i).ScaleXEnabled = value
+                        Appearances(i).ScaleYEnabled = value
+                        Appearances(i).ScaleZEnabled = value
+                    Next
+                Case 5
+                    For i As Integer = 0 To Count - 1
+                        Appearances(i).Radius = value
+                    Next
+                Case 6
+                    For i As Integer = 0 To Count - 1
+                        Appearances(i).ArrowHeadLength = value * 2
+                        Appearances(i).ArrowHeadWidth = value
+                    Next
+                Case 7
+                    For i As Integer = 0 To Count - 1
+                        Appearances(i).ArcThickness = value
+                        Appearances(i).AxisThickness = value
+                    Next
+                Case 8
+                    For i As Integer = 0 To Count - 1
+                        Appearances(i).PlanarTranslationGripSize = If(MyCustomAppearance(1), value, 0)
+                    Next
+                Case 9
+                    For i As Integer = 0 To Count - 1
+                        Appearances(i).PlanarTranslationGripCorner = If(MyCustomAppearance(1), value, 0)
+                    Next
+                Case Else
+                    Throw New ArgumentOutOfRangeException()
+            End Select
+            ChangeAppearances()
+        End Set
+    End Property
+
+    Public Property CustomAppearance As Integer()
+        Get
+            Return MyCustomAppearance
+        End Get
+        Set(value As Integer())
+            MyCustomAppearance = value
+
+            For i As Int32 = 0 To Count - 1
+                'Appearance.
+                Dim app As Rhino.UI.Gumball.GumballAppearanceSettings = Appearances(i)
+                app.MenuEnabled = False
+
+                'Translate.
+                app.TranslateXEnabled = MyCustomAppearance(0)
+                app.TranslateYEnabled = MyCustomAppearance(0)
+                app.TranslateZEnabled = MyCustomAppearance(0)
+                'Free translate.
+                If (MyCustomAppearance(2)) Then
+                    app.FreeTranslate = 2
+                Else
+                    app.FreeTranslate = 0
+                End If
+                'Rotate.
+                app.RotateXEnabled = MyCustomAppearance(3)
+                app.RotateYEnabled = MyCustomAppearance(3)
+                app.RotateZEnabled = MyCustomAppearance(3)
+                'Scale.
+                app.ScaleXEnabled = MyCustomAppearance(4)
+                app.ScaleYEnabled = MyCustomAppearance(4)
+                app.ScaleZEnabled = MyCustomAppearance(4)
+                'Radius.
+                app.Radius = MyCustomAppearance(5)
+                'Head.
+                app.ArrowHeadLength = MyCustomAppearance(6) * 2
+                app.ArrowHeadWidth = MyCustomAppearance(6)
+                'Thickness.
+                app.AxisThickness = MyCustomAppearance(7)
+                app.ArcThickness = MyCustomAppearance(7)
+                'Planar translate.
+                If MyCustomAppearance(1) Then
+                    app.TranslateXYEnabled = True
+                    app.TranslateYZEnabled = True
+                    app.TranslateZXEnabled = True
+                    'Plane size.
+                    app.PlanarTranslationGripSize = MyCustomAppearance(8)
+                    'Plane distance.
+                    app.PlanarTranslationGripCorner = MyCustomAppearance(9)
+                Else
+                    app.TranslateXYEnabled = False
+                    app.TranslateYZEnabled = False
+                    app.TranslateZXEnabled = False
+                    'Plane size.
+                    app.PlanarTranslationGripSize = 0
+                    'Plane distance.
+                    app.PlanarTranslationGripCorner = 0
+                End If
+
+                If (Geometry(i).ObjectType = Rhino.DocObjects.ObjectType.Point) Then
+                    app.ScaleXEnabled = False
+                    app.ScaleYEnabled = False
+                    app.ScaleZEnabled = False
+                End If
+
+                Appearances(i) = app
+            Next
+
+            ChangeAppearances()
+        End Set
+    End Property
+
+    Private Sub ChangeAppearances()
+
+        For i As Int32 = 0 To Count - 1
+            Conduits(i).Enabled = False
+            Conduits(i).SetBaseGumball(Gumballs(i), Appearances(i))
+            Conduits(i).Enabled = True
+        Next
+        Rhino.RhinoDoc.ActiveDoc.Views.Redraw()
+    End Sub
+#End Region
+
+#Region "Serializable"
+
+    Public Function GumballWriter(ByVal writer As GH_IO.Serialization.GH_IWriter) As Boolean
+        'gbroot 
+        '   |
+        '   ├─gbdata
+        '   |     |
+        '   |     ├─countgeo
+        '   |     |       |
+        '   |     |       └─count
+        '   |     |
+        '   |     ├─geometry
+        '   |     |       |
+        '   |     |       ├─geo
+        '   |     |      (i)           
+        '   |     | 
+        '   |     ├─transform
+        '   |     |       |
+        '   |     |       ├─gh_transform
+        '   |     |      (i)
+        '   |     |  
+        '   |     └─gumball
+        '   |             |
+        '   |             ├─frameplane
+        '   |             ├─scalegripdistance
+        '   |            (i)
+        '   | 
+        '   └─gbattributes 
+        '         |
+        '         ├─gumballattributes_values
+        '         |                     |
+        '         |                     ├─GbAtt_Translate
+        '         |                     ├─GbAtt_PlanarTranslate
+        '         |                     ├─GbAtt_FreeTranslate
+        '         |                     ├─GbAtt_Rotate
+        '         |                     ├─GbAtt_Scale
+        '         |                     ├─GbAtt_Radius
+        '         |                     ├─GbAtt_ArrowHead
+        '         |                     ├─GbAtt_Thickness
+        '         |                     ├─GbAtt_PlaneSize
+        '         |                     └─GbAtt_PlaneDistance
+        '         | 
+        '         └─gumballattributes_modes
+        '                               |
+        '                               ├─valmode
+        '                               ├─attmode
+        '                               └─aligntogeometry
+
+        Try
+            Dim i As New Integer
+
+            'Root.
+            ' writer.RemoveChunk("gbroot")
+            Dim root As GH_IWriter = writer.CreateChunk("gbroot")
+
+            'Data.
+            Dim data As GH_IWriter = root.CreateChunk("gbdata", 0)
+
+            'Count.
+            Dim co As GH_IWriter = data.CreateChunk("countgeo", 0)
+            co.SetInt32("count", 0, Me.Count)
+
+            'Geometry.
+            Dim geo As GH_IWriter = data.CreateChunk("geometry", 1)
+            For i = 0 To Count - 1
+                Dim bytes As Byte() = GH_Convert.CommonObjectToByteArray(Geometry(i))
+                geo.SetByteArray("geo", i, bytes)
+            Next
+
+            'Transform.
+            Dim xf As GH_IWriter = data.CreateChunk("transform", 2)
+            For i = 0 To Count - 1
+                Dim t As GH_IWriter = xf.CreateChunk("gh_transform", i)
+                Xform(i).Write(t)
+            Next
+
+            'Gumball.
+            Dim obj As GH_IWriter = data.CreateChunk("gumball", 3)
+            For i = 0 To Count - 1
+                Dim frame As Plane = Gumballs(i).Frame.Plane
+                Dim pln As GH_IO.Types.GH_Plane
+                pln.Origin = New GH_IO.Types.GH_Point3D(frame.Origin.X, frame.Origin.Y, frame.Origin.Z)
+                pln.XAxis = New GH_IO.Types.GH_Point3D(frame.XAxis.X, frame.XAxis.Y, frame.XAxis.Z)
+                pln.YAxis = New GH_IO.Types.GH_Point3D(frame.YAxis.X, frame.YAxis.Y, frame.YAxis.Z)
+                obj.SetPlane("frameplane", i, pln)
+                Dim scd As Vector3d = Gumballs(i).Frame.ScaleGripDistance
+                Dim vec As New GH_IO.Types.GH_Point3D(scd.X, scd.Y, scd.Z)
+                obj.SetPoint3D("scalegripdistance", i, vec)
+            Next
+
+            'Attributes.
+            Dim att As GH_IWriter = root.CreateChunk("gbattributes", 1)
+
+            'Attributes_values
+            Dim att0 As GH_IWriter = att.CreateChunk("gumballattributes_values", 0)
+            att0.SetInt32("GbAtt_Translate", 0, MyCustomAppearance(0))
+            att0.SetInt32("GbAtt_PlanarTranslate", 1, MyCustomAppearance(1))
+            att0.SetInt32("GbAtt_FreeTranslate", 2, MyCustomAppearance(2))
+            att0.SetInt32("GbAtt_Rotate", 3, MyCustomAppearance(3))
+            att0.SetInt32("GbAtt_Scale", 4, MyCustomAppearance(4))
+            att0.SetInt32("GbAtt_Radius", 5, MyCustomAppearance(5))
+            att0.SetInt32("GbAtt_ArrowHead", 6, MyCustomAppearance(6))
+            att0.SetInt32("GbAtt_Thickness", 7, MyCustomAppearance(7))
+            att0.SetInt32("GbAtt_PlaneSize", 8, MyCustomAppearance(8))
+            att0.SetInt32("GbAtt_PlaneDistance", 9, MyCustomAppearance(9))
+
+            'Attributes_modes
+            Dim att1 As GH_IWriter = att.CreateChunk("gumballattributes_modes", 1)
+            att1.SetInt32("valmode", 0, Me.Component.ModeValue(0))
+            att1.SetInt32("attmode", 1, Me.Component.ModeValue(1))
+            att1.SetBoolean("aligntogeometry", 2, Me.Component.ModeValue(2))
+
+        Catch ex As Exception
+            Rhino.RhinoApp.WriteLine("WRITER_GB; " & ex.ToString())
+        End Try
+        Return True
+    End Function
+
+    Public Function GumballReader(Reader As GH_IO.Serialization.GH_IReader) As Boolean
+
+        If Not (Reader.ChunkExists("gbroot")) Then
+            Return False
+            Exit Function
+        End If
+
+        Try
+            Dim i As New Integer
+
+            'Root.
+            Dim root As GH_IReader = Reader.FindChunk("gbroot")
+
+            'Data.
+            Dim data As GH_IReader = root.FindChunk("gbdata", 0)
+
+            'Count.
+            Dim countgeo As GH_IReader = data.FindChunk("countgeo", 0)
+            Count = countgeo.GetInt32("count", 0)
+
+            'Geomtry.
+            Geometry = New GeometryBase(Count - 1) {}
+            Dim g As GH_IO.Serialization.GH_IReader = data.FindChunk("geometry", 1)
+            For i = 0 To Count - 1
+                Dim bytes As Byte() = g.GetByteArray("geo", i)
+                Geometry(i) = GH_Convert.ByteArrayToCommonObject(Of GeometryBase)(bytes)
+            Next
+
+            'Transform.
+            Xform = New Types.GH_Transform(Count - 1) {}
+            Dim xf As GH_IO.Serialization.GH_IReader = data.FindChunk("transform", 2)
+            For i = 0 To Count - 1
+                Dim t As GH_IO.Serialization.GH_IReader = xf.FindChunk("gh_transform", i)
+                Dim ghxform As New Types.GH_Transform()
+                ghxform.Read(t)
+                Xform(i) = ghxform
+            Next
+
+            'Gumball.
+            Gumballs = New Rhino.UI.Gumball.GumballObject(Count - 1) {}
+            Dim go As GH_IO.Serialization.GH_IReader = data.FindChunk("gumball", 3)
+            For i = 0 To Count - 1
+                Dim gb As New Rhino.UI.Gumball.GumballObject
+                Dim frame As New Rhino.UI.Gumball.GumballFrame
+                Dim pln As GH_IO.Types.GH_Plane = go.GetPlane("frameplane", i)
+                frame.Plane = New Plane(New Point3d(pln.Origin.x, pln.Origin.y, pln.Origin.z), New Vector3d(pln.XAxis.x, pln.XAxis.y, pln.XAxis.z), New Vector3d(pln.YAxis.x, pln.YAxis.y, pln.YAxis.z))
+                Dim scd As GH_IO.Types.GH_Point3D = go.GetPoint3D("scalegripdistance", i)
+                frame.ScaleGripDistance = New Vector3d(scd.x, scd.y, scd.z)
+                gb.Frame = frame
+                Gumballs(i) = gb
+            Next
+
+            'Attributes.
+            Dim att As GH_IReader = root.FindChunk("gbattributes", 1)
+
+            'Attributes_values
+            Dim att0 As GH_IO.Serialization.GH_Chunk = att.FindChunk("gumballattributes_values", 0)
+
+            MyCustomAppearance(0) = att0.GetInt32("GbAtt_Translate", 0)
+            MyCustomAppearance(1) = att0.GetInt32("GbAtt_PlanarTranslate", 1)
+            MyCustomAppearance(2) = att0.GetInt32("GbAtt_FreeTranslate", 2)
+            MyCustomAppearance(3) = att0.GetInt32("GbAtt_Rotate", 3)
+            MyCustomAppearance(4) = att0.GetInt32("GbAtt_Scale", 4)
+            MyCustomAppearance(5) = att0.GetInt32("GbAtt_Radius", 5)
+            MyCustomAppearance(6) = att0.GetInt32("GbAtt_ArrowHead", 6)
+            MyCustomAppearance(7) = att0.GetInt32("GbAtt_Thickness", 7)
+            MyCustomAppearance(8) = att0.GetInt32("GbAtt_PlaneSize", 8)
+            MyCustomAppearance(9) = att0.GetInt32("GbAtt_PlaneDistance", 9)
+
+            'Attributes_modes
+            Dim att1 As GH_IO.Serialization.GH_Chunk = att.FindChunk("gumballattributes_modes", 1)
+            Component.ModeValue(0) = att1.GetInt32("valmode", 0)
+            Component.ModeValue(1) = att1.GetInt32("attmode", 1)
+            Component.ModeValue(2) = att1.GetBoolean("aligntogeometry", 2)
+
+            'End reader.
+
+            For i = 0 To Count - 1
+                'Appearance.
+                Dim app As Rhino.UI.Gumball.GumballAppearanceSettings = Appearances(i)
+                app.MenuEnabled = False
+
+                'Translate.
+                app.TranslateXEnabled = MyCustomAppearance(0)
+                app.TranslateYEnabled = MyCustomAppearance(0)
+                app.TranslateZEnabled = MyCustomAppearance(0)
+                'Free translate.
+                If (MyCustomAppearance(2)) Then
+                    app.FreeTranslate = 2
+                Else
+                    app.FreeTranslate = 0
+                End If
+                'Rotate.
+                app.RotateXEnabled = MyCustomAppearance(3)
+                app.RotateYEnabled = MyCustomAppearance(3)
+                app.RotateZEnabled = MyCustomAppearance(3)
+                'Scale.
+                app.ScaleXEnabled = MyCustomAppearance(4)
+                app.ScaleYEnabled = MyCustomAppearance(4)
+                app.ScaleZEnabled = MyCustomAppearance(4)
+                'Radius.
+                app.Radius = MyCustomAppearance(5)
+                'Head.
+                app.ArrowHeadLength = MyCustomAppearance(6) * 2
+                app.ArrowHeadWidth = MyCustomAppearance(6)
+                'Thickness.
+                app.AxisThickness = MyCustomAppearance(7)
+                app.ArcThickness = MyCustomAppearance(7)
+                'Planar translate.
+                If MyCustomAppearance(1) Then
+                    app.TranslateXYEnabled = True
+                    app.TranslateYZEnabled = True
+                    app.TranslateZXEnabled = True
+                    'Plane size.
+                    app.PlanarTranslationGripSize = MyCustomAppearance(8)
+                    'Plane distance.
+                    app.PlanarTranslationGripCorner = MyCustomAppearance(9)
+                Else
+                    app.TranslateXYEnabled = False
+                    app.TranslateYZEnabled = False
+                    app.TranslateZXEnabled = False
+                    'Plane size.
+                    app.PlanarTranslationGripSize = 0
+                    'Plane distance.
+                    app.PlanarTranslationGripCorner = 0
+                End If
+
+                If (Geometry(i).ObjectType = Rhino.DocObjects.ObjectType.Point) Then
+                    app.ScaleXEnabled = False
+                    app.ScaleYEnabled = False
+                    app.ScaleZEnabled = False
+                End If
+
+                Appearances(i) = app
+
+                'Display conduit.
+                Conduits(i).SetBaseGumball(Gumballs(i), app)
+
+                Me.Component.ExpireSolution(True)
+                If (Me.Component.Attributes.Selected) Then Me.ShowGumballs()
+
+            Next
+        Catch ex As Exception
+            Rhino.RhinoApp.WriteLine("READER_GB; " & ex.ToString())
+
+        End Try
+        Return True
+    End Function
+    '
+    '
+    Public Function Write(writer As GH_IWriter) As Boolean Implements GH_ISerializable.Write
+        GumballWriter(writer)
+        Return True
+    End Function
+
+    Public Function Read(reader As GH_IReader) As Boolean Implements GH_ISerializable.Read
+        GumballReader(reader)
+        Return True
+    End Function
+#End Region
+
+End Class
+
+Public Class GbUndo
+    Inherits Grasshopper.Kernel.Undo.GH_ArchivedUndoAction
+
+    Private GB As GhGumball
+
+    Sub New(MyGb As GhGumball)
+        GB = MyGb
+        Me.m_data = Me.SerializeToByteArray(MyGb)
+        Dim chunk As New GH_LooseChunk("GbUndo")
+        Me.Write(chunk)
+    End Sub
+
+    Protected Overrides Sub Internal_Redo(doc As GH_Document)
+        Internal_Undo(doc)
+    End Sub
+
+    Protected Overrides Sub Internal_Undo(doc As GH_Document)
+        Dim reader As New GH_LooseChunk("GbUndo")
+        reader.Deserialize_Binary(Me.m_data)
+        GB.Read(reader)
+    End Sub
 End Class
 
 Public Class FormAttributes
@@ -1120,91 +1696,64 @@ Public Class FormAttributes
 #Region "Events"
     Private Sub Form1_Load(sender As Object, e As EventArgs) Handles MyBase.Load
         CanSend = False
-        Me.ButtTranslate.Checked = Me.Component.GumballAttributes(0)
-        Me.ButtPlane.Checked = Me.Component.GumballAttributes(1)
-        Me.ButtFree.Checked = Me.Component.GumballAttributes(2)
-        Me.ButtRotate.Checked = Me.Component.GumballAttributes(3)
-        Me.ButtScale.Checked = Me.Component.GumballAttributes(4)
-        Me.NumRad.Value = New Decimal(New Integer() {Me.Component.GumballAttributes(5), 0, 0, 0})
-        Me.NumAH.Value = New Decimal(New Integer() {Me.Component.GumballAttributes(6), 0, 0, 0})
-        Me.NumThk.Value = New Decimal(New Integer() {Me.Component.GumballAttributes(7), 0, 0, 0})
-        Me.NumPS.Value = New Decimal(New Integer() {Me.Component.GumballAttributes(8), 0, 0, 0})
-        Me.NumPD.Value = New Decimal(New Integer() {Me.Component.GumballAttributes(9), 0, 0, 0})
+        If (Component.MyGumball IsNot Nothing) Then
+            Me.ButtTranslate.Checked = Component.MyGumball.CustomAppearance(0)
+            Me.ButtPlane.Checked = Component.MyGumball.CustomAppearance(1)
+            Me.ButtFree.Checked = Component.MyGumball.CustomAppearance(2)
+            Me.ButtRotate.Checked = Component.MyGumball.CustomAppearance(3)
+            Me.ButtScale.Checked = Component.MyGumball.CustomAppearance(4)
+            Me.NumRad.Value = New Decimal(New Integer() {Component.MyGumball.CustomAppearance(5), 0, 0, 0})
+            Me.NumAH.Value = New Decimal(New Integer() {Component.MyGumball.CustomAppearance(6), 0, 0, 0})
+            Me.NumThk.Value = New Decimal(New Integer() {Component.MyGumball.CustomAppearance(7), 0, 0, 0})
+            Me.NumPS.Value = New Decimal(New Integer() {Component.MyGumball.CustomAppearance(8), 0, 0, 0})
+            Me.NumPD.Value = New Decimal(New Integer() {Component.MyGumball.CustomAppearance(9), 0, 0, 0})
+        End If
         CanSend = True
     End Sub
 
     Private Sub Form1_FormClosed(sender As Object, e As FormClosedEventArgs) Handles MyBase.FormClosed
+        If (Component.MyGumball IsNot Nothing) Then Component.RecordUndoEvent("Gumball Attributes", New GbUndo(Component.MyGumball))
         Me.Component.AttForm = Nothing
     End Sub
 
     Private Sub ButtTranslate_CheckedChanged(sender As Object, e As EventArgs) Handles ButtTranslate.CheckedChanged
-        If (Me.Component.MyGumball IsNot Nothing) AndAlso (CanSend) Then
-            Me.Component.GumballAttributes(0) = Me.ButtTranslate.CheckState.value__
-            Me.Component.MyGumball.ChangeAppearance()
-        End If
+        If (Me.Component.MyGumball IsNot Nothing) AndAlso (CanSend) Then Component.MyGumball.CustomAppearance(0) = Me.ButtTranslate.CheckState.value__
     End Sub
 
     Private Sub ButtPlane_CheckedChanged(sender As Object, e As EventArgs) Handles ButtPlane.CheckedChanged
-        If (Me.Component.MyGumball IsNot Nothing) AndAlso (CanSend) Then
-            Me.Component.GumballAttributes(1) = Me.ButtPlane.CheckState.value__
-            Me.Component.MyGumball.ChangeAppearance()
-        End If
+        If (Me.Component.MyGumball IsNot Nothing) AndAlso (CanSend) Then Component.MyGumball.CustomAppearance(1) = Me.ButtPlane.CheckState.value__
     End Sub
 
     Private Sub ButtFree_CheckedChanged(sender As Object, e As EventArgs) Handles ButtFree.CheckedChanged
-        If (Me.Component.MyGumball IsNot Nothing) AndAlso (CanSend) Then
-            Me.Component.GumballAttributes(2) = Me.ButtFree.CheckState.value__
-            Me.Component.MyGumball.ChangeAppearance()
-        End If
+        If (Me.Component.MyGumball IsNot Nothing) AndAlso (CanSend) Then Component.MyGumball.CustomAppearance(2) = Me.ButtFree.CheckState.value__
     End Sub
 
     Private Sub ButtRotate_CheckedChanged(sender As Object, e As EventArgs) Handles ButtRotate.CheckedChanged
-        If (Me.Component.MyGumball IsNot Nothing) AndAlso (CanSend) Then
-            Me.Component.GumballAttributes(3) = Me.ButtRotate.CheckState.value__
-            Me.Component.MyGumball.ChangeAppearance()
-        End If
+        If (Me.Component.MyGumball IsNot Nothing) AndAlso (CanSend) Then Component.MyGumball.CustomAppearance(3) = Me.ButtRotate.CheckState.value__
     End Sub
 
     Private Sub ButtScale_CheckedChanged(sender As Object, e As EventArgs) Handles ButtScale.CheckedChanged
-        If (Me.Component.MyGumball IsNot Nothing) AndAlso (CanSend) Then
-            Me.Component.GumballAttributes(4) = Me.ButtScale.CheckState.value__
-            Me.Component.MyGumball.ChangeAppearance()
-        End If
+        If (Me.Component.MyGumball IsNot Nothing) AndAlso (CanSend) Then Component.MyGumball.CustomAppearance(4) = Me.ButtScale.CheckState.value__
     End Sub
 
     Private Sub NumRad_ValueChanged(sender As Object, e As EventArgs) Handles NumRad.ValueChanged
-        If (Me.Component.MyGumball IsNot Nothing) AndAlso (CanSend) Then
-            Me.Component.GumballAttributes(5) = CInt(Me.NumRad.Value)
-            Me.Component.MyGumball.ChangeAppearance()
-        End If
+        If (Me.Component.MyGumball IsNot Nothing) AndAlso (CanSend) Then Component.MyGumball.CustomAppearance(5) = CInt(Me.NumRad.Value)
     End Sub
 
     Private Sub NumAH_ValueChanged(sender As Object, e As EventArgs) Handles NumAH.ValueChanged
-        If (Me.Component.MyGumball IsNot Nothing) AndAlso (CanSend) Then
-            Me.Component.GumballAttributes(6) = CInt(Me.NumAH.Value)
-            Me.Component.MyGumball.ChangeAppearance()
-        End If
+        If (Me.Component.MyGumball IsNot Nothing) AndAlso (CanSend) Then Component.MyGumball.CustomAppearance(6) = CInt(Me.NumAH.Value)
     End Sub
 
     Private Sub NumThk_ValueChanged(sender As Object, e As EventArgs) Handles NumThk.ValueChanged
-        If (Me.Component.MyGumball IsNot Nothing) AndAlso (CanSend) Then
-            Me.Component.GumballAttributes(7) = CInt(Me.NumThk.Value)
-            Me.Component.MyGumball.ChangeAppearance()
-        End If
+        If (Me.Component.MyGumball IsNot Nothing) AndAlso (CanSend) Then Component.MyGumball.CustomAppearance(7) = CInt(Me.NumThk.Value)
     End Sub
 
     Private Sub NumPS_ValueChanged(sender As Object, e As EventArgs) Handles NumPS.ValueChanged
-        If (Me.Component.MyGumball IsNot Nothing) AndAlso (CanSend) Then
-            Me.Component.GumballAttributes(8) = CInt(Me.NumPS.Value)
-            Me.Component.MyGumball.ChangeAppearance()
-        End If
+        If (Me.Component.MyGumball IsNot Nothing) AndAlso (CanSend) Then Component.MyGumball.CustomAppearance(8) = CInt(Me.NumPS.Value)
     End Sub
 
     Private Sub NumPD_ValueChanged(sender As Object, e As EventArgs) Handles NumPD.ValueChanged
-        If (Me.Component.MyGumball IsNot Nothing) AndAlso (CanSend) Then
-            Me.Component.GumballAttributes(9) = CInt(Me.NumPD.Value)
-            Me.Component.MyGumball.ChangeAppearance()
-        End If
+        If (Me.Component.MyGumball IsNot Nothing) AndAlso (CanSend) Then Component.MyGumball.CustomAppearance(9) = CInt(Me.NumPD.Value)
     End Sub
 #End Region
 
@@ -1455,4 +2004,74 @@ Public Class FormAttributes
     Friend WithEvents ButtFree As CheckBox
 #End Region
 
+End Class
+
+Public Class FormTextBox
+    Inherits System.Windows.Forms.Form
+
+    Public GB As GhGumball
+
+    Sub New(Loc As System.Drawing.Point, MyOwner As GhGumball)
+        GB = MyOwner
+        Me.Location = Loc
+        InitializeComponent()
+        Me.Show()
+    End Sub
+
+    Private Sub TextBox1_KeyDown(sender As Object, e As KeyEventArgs) Handles TextBox1.KeyDown
+        If e.KeyData = Keys.Enter Then
+            GB.Component.RecordUndoEvent("Gumball Drag", New GbUndo(GB))
+            GB.TransformFromTextBox()
+            Me.Dispose()
+            Me.Close()
+        End If
+    End Sub
+
+    Private Sub TextBox1_TextChanged(sender As Object, e As EventArgs) Handles TextBox1.TextChanged
+        GB.ValueString = Me.TextBox1.Text
+    End Sub
+
+    Protected Overrides Sub Dispose(ByVal disposing As Boolean)
+        Try
+            If disposing AndAlso components IsNot Nothing Then
+                components.Dispose()
+            End If
+        Finally
+            MyBase.Dispose(disposing)
+        End Try
+    End Sub
+
+    Private components As System.ComponentModel.IContainer
+
+    Private Sub InitializeComponent()
+        Me.TextBox1 = New System.Windows.Forms.TextBox()
+        Me.SuspendLayout()
+        '
+        'TextBox1
+        '
+        Me.TextBox1.Dock = System.Windows.Forms.DockStyle.Fill
+        Me.TextBox1.Location = New System.Drawing.Point(0, 0)
+        Me.TextBox1.Name = "TextBox1"
+        Me.TextBox1.Size = New System.Drawing.Size(100, 20)
+        Me.TextBox1.TabIndex = 0
+        '
+        'Form1
+        '
+        Me.AutoScaleDimensions = New System.Drawing.SizeF(6.0!, 13.0!)
+        Me.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font
+        Me.ClientSize = New System.Drawing.Size(100, 20)
+        Me.Controls.Add(Me.TextBox1)
+        Me.FormBorderStyle = System.Windows.Forms.FormBorderStyle.None
+        Me.StartPosition = FormStartPosition.Manual
+        Me.MaximumSize = New System.Drawing.Size(100, 20)
+        Me.MinimumSize = New System.Drawing.Size(100, 20)
+        Me.Name = "Form1"
+        Me.Text = "Form1"
+        Me.Owner = Grasshopper.Instances.DocumentEditor
+        Me.ResumeLayout(False)
+        Me.PerformLayout()
+
+    End Sub
+
+    Friend WithEvents TextBox1 As TextBox
 End Class
